@@ -1,0 +1,126 @@
+{% set down = results | selectattr('status', 'equalto', 'DOWN') | list %}
+{% set slow = results | selectattr('status', 'equalto', 'SLOW') | list %}
+{% set timed = results | selectattr('ms') | map(attribute='ms') | list %}
+{% set level = 'down' if down else ('slow' if slow else 'up') %}
+{% set tone = {
+  'up':   {'fg': '#0b7a55', 'bg': '#e9f8f1', 'line': '#b4e6d0'},
+  'slow': {'fg': '#b45f06', 'bg': '#fff4e5', 'line': '#fbd6a3'},
+  'down': {'fg': '#c40d42', 'bg': '#fdeef3', 'line': '#f6bfd0'},
+} %}
+{% set labels = {'UP': 'Operational', 'SLOW': 'Slow', 'DOWN': 'Down'} %}
+{% set font = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StatRep Website Status Report</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:{{ font }};color:#1a1a1a;-webkit-font-smoothing:antialiased">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5">
+<tr><td align="center" style="padding:32px 12px">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;background:#ffffff;border:1px solid #e5e5e5;border-radius:14px;overflow:hidden">
+    <!-- Brand bar -->
+    <tr><td height="4" bgcolor="#c40d42" style="height:4px;line-height:4px;font-size:0;background:#c40d42;background-image:linear-gradient(90deg,#feb61e,#fe961f 25%,#fc531b 50%,#e91862 75%,#c40d42)">&nbsp;</td></tr>
+
+    <!-- Header -->
+    <tr><td style="padding:24px 28px 8px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td valign="middle" width="52"><img src="{{ logo_src }}" width="44" height="44" alt="StatRep" style="display:block;border:0"></td>
+        <td valign="middle" style="padding-left:10px">
+          <div style="font-size:19px;font-weight:700;letter-spacing:-.3px">Stat<span style="color:#c40d42">Rep</span></div>
+          <div style="font-size:12px;color:#737373">Website Status Report</div>
+        </td>
+        <td valign="middle" align="right" style="font-size:12px;color:#737373;line-height:1.5">
+          {{ run.started_at }}<br>{{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} check
+        </td>
+      </tr></table>
+    </td></tr>
+
+    <!-- Overall status -->
+    <tr><td style="padding:16px 28px 4px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{{ tone[level].bg }};border:1px solid {{ tone[level].line }};border-radius:12px">
+        <tr><td style="padding:18px 20px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:{{ tone[level].fg }}">
+            {{ {'up': 'All clear', 'slow': 'Attention', 'down': 'Action required'}[level] }}
+          </div>
+          <div style="font-size:22px;font-weight:700;letter-spacing:-.4px;margin-top:4px;color:#1a1a1a">
+            {% if down %}{{ down|length }} of {{ run.total }} websites are down
+            {% elif slow %}All websites reachable, {{ slow|length }} responding slowly
+            {% else %}All {{ run.total }} websites are operational{% endif %}
+          </div>
+          {% if down %}
+          <div style="font-size:13px;color:#525252;margin-top:6px">Down: {{ down | map(attribute='name') | join(', ') }}</div>
+          {% endif %}
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <!-- Summary -->
+    <tr><td style="padding:16px 28px 8px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px">
+        <tr>
+          {% for label, value, color in [
+            ('Operational', results|length - down|length - slow|length, '#0b7a55'),
+            ('Slow', slow|length, '#b45f06'),
+            ('Down', down|length, '#c40d42' if down else '#1a1a1a'),
+            ('Avg. response', ((timed|sum / timed|length)|int ~ ' ms') if timed else '-', '#1a1a1a')] %}
+          <td width="25%" style="padding:14px 16px;{{ 'border-left:1px solid #ececec;' if not loop.first }}">
+            <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#737373">{{ label }}</div>
+            <div style="font-size:22px;font-weight:700;letter-spacing:-.4px;color:{{ color }};margin-top:2px">{{ value }}</div>
+          </td>
+          {% endfor %}
+        </tr>
+      </table>
+    </td></tr>
+
+    <!-- Websites -->
+    <tr><td style="padding:16px 28px 8px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#737373;margin-bottom:8px">Websites</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px;border-collapse:separate;overflow:hidden;font-size:13px">
+        <tr style="background:#fafafa">
+          {% for h in ['Website', 'Status', 'HTTP', 'Response', 'Last updated', 'SSL', 'Domain'] %}
+          <th align="left" style="padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#737373;border-bottom:1px solid #ececec">{{ h }}</th>
+          {% endfor %}
+        </tr>
+        {% for r in (down + slow + (results | selectattr('status', 'equalto', 'UP') | list)) %}
+        {% set t = tone[{'UP': 'up', 'SLOW': 'slow', 'DOWN': 'down'}[r.status]] %}
+        <tr>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
+            <a href="{{ r.url }}" style="color:#1a1a1a;font-weight:600;text-decoration:none">{{ r.name }}</a>
+            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ r.error }}</div>{% endif %}
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
+            <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border:1px solid {{ t.line }}">{{ labels[r.status] }}</span>
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252">{{ r.code or '-' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ms ~ ' ms' if r.ms else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
+            {% if r.updated %}{{ r.updated|ago }}<div style="color:#737373;font-size:11px">{{ r.updated|fmtdate }}</div>{% else %}<span style="color:#737373">Unknown</span>{% endif %}
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.ssl_days is not none and r.ssl_days < ssl_warn_days else 'color:#525252' }}">
+            {{ r.ssl_days ~ ' days' if r.ssl_days is not none else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.domain_days is not none and r.domain_days < domain_warn_days else 'color:#525252' }}">
+            {% if r.domain_days is not none %}{{ r.domain_days }} days{% elif r.domain_note and r.domain_note.startswith('Shared') %}Shared{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td></tr>
+
+    {% if dashboard_url %}
+    <tr><td align="center" style="padding:20px 28px 4px">
+      <a href="{{ dashboard_url }}" style="display:inline-block;padding:12px 26px;border-radius:999px;background:#c40d42;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none">Open dashboard</a>
+    </td></tr>
+    {% endif %}
+
+    <!-- Footer -->
+    <tr><td style="padding:20px 28px 24px;font-size:12px;color:#8a8a8a;line-height:1.6">
+      Automated report from StatRep. Checks run daily at {{ check_times | join(' and ') }} ({{ tz }}).
+    </td></tr>
+  </table>
+
+</td></tr>
+</table>
+</body>
+</html>

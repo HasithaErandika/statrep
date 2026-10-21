@@ -1,0 +1,10 @@
+services:
+  statrep:
+    build: .
+    container_name: statrep
+    env_file: .env
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ./config:/app/config:ro   # edit config/sites.txt, then: docker compose restart
+    restart: unless-stopped
