@@ -1,0 +1,15 @@
+# Websites to check on every run. After editing: docker compose restart
+#
+# Each entry is either just a URL, or a url with an optional display name:
+#
+#   - https://example.com/
+#   - url: https://shop.example.com/
+#     name: Online shop
+#
+# "https://" is added if you leave it out. APIs go in apis.yml.
+
+- https://vertexlabs.team/
+- https://brainlabsinc.org/
+- https://openschool-org.github.io/openschool-web/
+- https://coregrid-org.github.io/coregrid-web/
+- https://openats.dev/

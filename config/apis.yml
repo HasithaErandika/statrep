@@ -1,0 +1,51 @@
+# APIs to check on every run (as well as the websites in sites.yml).
+# After editing: docker compose restart
+#
+# Each API is a "- name:" entry. Only name and url are required.
+#
+#   name             Shown in the report
+#   url              Full URL, http:// or https://
+#   method           GET (default), POST, PUT, PATCH, DELETE, HEAD, OPTIONS
+#   headers          Request headers, e.g. an API key or Authorization token
+#   body             Request body: a mapping/list is sent as JSON, text is sent as-is
+#   expect_status    Required HTTP status, e.g. 200 or [200, 204]. Default: anything below 400
+#   expect_json      Fields the JSON reply must contain, e.g. { status: ok, data.db.healthy: true }
+#                    (dotted paths go into nested objects; numbers pick list items: items.0.id)
+#   expect_text      Text the reply must contain
+#   slow_ms          Slower than this = SLOW (default API_SLOW_MS in .env, 2000)
+#   timeout          Seconds to wait (default CHECK_TIMEOUT)
+#   retry            Retry once if DOWN. Default: yes for GET/HEAD/OPTIONS, no for POST/PUT/...
+#   follow_redirects Default: true
+#
+# SECRETS: never write tokens or passwords here. Put them in .env and use ${NAME}:
+#   .env:       ORDERS_API_TOKEN=abc123
+#   this file:  Authorization: "Bearer ${ORDERS_API_TOKEN}"
+# Header values and bodies are never shown in the page, email or CSV. The url is shown as
+# written here (with ${NAME}, not the value), so a key typed directly into the url WOULD be
+# shown: always use ${NAME}. Query strings are removed from redirect URLs.
+#
+# Examples (remove the # to enable):
+#
+# - name: Orders API health
+#   url: https://api.example.com/health
+#   expect_status: 200
+#   expect_json:
+#     status: ok
+#
+# - name: Products list
+#   url: https://api.example.com/v1/products?limit=1
+#   headers:
+#     X-API-Key: ${PRODUCTS_API_KEY}
+#   expect_status: 200
+#   expect_json:
+#     items.0.id: 1
+#   slow_ms: 1000
+#
+# - name: Login
+#   url: https://api.example.com/v1/auth/login
+#   method: POST
+#   body:
+#     username: monitor
+#     password: ${MONITOR_PASSWORD}
+#   expect_status: 200
+#   expect_text: access_token

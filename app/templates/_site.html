@@ -1,4 +1,4 @@
-{# One website row with an expandable detail panel. Used by the main list and Quick check. #}
+{# Website and API rows with expandable detail panels. Used by the main lists and Quick check. #}
 {% set LABELS = {'UP': 'Operational', 'SLOW': 'Slow', 'DOWN': 'Down'} %}
 {% set STATUS_ICON = {'UP': 'check', 'SLOW': 'alert', 'DOWN': 'x'} %}
 {% set SEGMENTS = [('dns', 'DNS lookup'), ('connect', 'Connect'), ('tls', 'SSL handshake'), ('server', 'Server wait'), ('download', 'Download')] %}
@@ -9,21 +9,15 @@
   <span class="metric-sm {{ 'c-down' if n < warn }}">{{ n }} days</span>
 {%- endmacro %}
 
-{% macro site_row(r) %}
-<details class="site site-{{ r.status|lower }}">
-  <summary class="row">
-    <div class="cell cell-site">
-      <span class="favicon">{{ icon('globe') }}{% if r.favicon %}<img src="{{ r.favicon }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}</span>
-      <span class="site-text">
-        <span class="site-name">{{ r.name }}</span>
-        {% if r.error %}<span class="site-sub c-down">{{ r.error }}</span>
-        {% elif r.description or r.title %}<span class="site-sub">{{ r.description or r.title }}</span>{% endif %}
-      </span>
-    </div>
+{# Pieces shared by website and API rows #}
+{% macro status_cell(r) %}
     <div class="cell cell-status">
       <span class="badge badge-{{ r.status|lower }}">{{ icon(STATUS_ICON[r.status]) }}{{ LABELS[r.status] }}</span>
       {% if r.code %}<span class="code">HTTP {{ r.code }}</span>{% endif %}
     </div>
+{% endmacro %}
+
+{% macro resp_cell(r) %}
     <div class="cell cell-resp">
       <span class="cell-label">Response</span>
       {% if r.ms %}
@@ -31,30 +25,27 @@
         <span class="bar"><span class="bar-fill bar-{{ r.status|lower }}" style="width:{{ [[r.ms * 100 // 2000, 4]|max, 100]|min }}%"></span></span>
       {% else %}<span class="metric muted">—</span>{% endif %}
     </div>
-    <div class="cell cell-upd">
-      <span class="cell-label">Updated</span>
-      {% if r.updated %}<span class="metric-sm">{{ r.updated|ago }}</span>{% else %}<span class="metric-sm muted">Unknown</span>{% endif %}
-    </div>
+{% endmacro %}
+
+{% macro ssl_cell(r) %}
     <div class="cell cell-ssl">
       <span class="cell-label">SSL</span>
       {% if r.ssl_days is not none %}{{ days(r.ssl_days, cfg.SSL_WARN_DAYS) }}{% else %}<span class="metric-sm muted">—</span>{% endif %}
     </div>
+{% endmacro %}
+
+{% macro domain_cell(r) %}
     <div class="cell cell-domain">
       <span class="cell-label">Domain</span>
       {% if r.domain_days is not none %}{{ days(r.domain_days, cfg.DOMAIN_WARN_DAYS) }}
       {% elif r.domain_note and r.domain_note.startswith('Shared') %}<span class="metric-sm muted">Shared</span>
       {% else %}<span class="metric-sm muted">—</span>{% endif %}
     </div>
-    <div class="cell cell-sec">
-      <span class="cell-label">Security</span>
-      {% if r.sec_grade %}<span class="grade grade-{{ r.sec_grade|lower }}">{{ r.sec_grade }}</span>{% else %}<span class="metric-sm muted">—</span>{% endif %}
-    </div>
-    <span class="chev-cell">{{ icon('chevron') }}</span>
-  </summary>
+{% endmacro %}
 
-  <div class="detail">
+{% macro timing_block(r) %}
     <div class="block block-wide">
-      <h4>Response timing</h4>
+      <h4 title="DNS, connect and SSL are measured on a separate connection, so the split is an estimate">Response timing <span class="muted">· approx.</span></h4>
       {% set total = r.ms or 0 %}
       {% if total %}
         <div class="stack" role="img" aria-label="Response time breakdown">
@@ -68,7 +59,59 @@
         </ul>
       {% else %}<p class="muted">No response received.</p>{% endif %}
     </div>
+{% endmacro %}
 
+{% macro ssl_block(r) %}
+    <div class="block">
+      <h4>SSL certificate</h4>
+      <dl>
+        <dt>Issuer</dt><dd>{{ r.ssl_issuer or '—' }}</dd>
+        <dt>Expires</dt><dd>{{ r.ssl_expires|fmtdate or '—' }}{% if r.ssl_days is not none %} · {{ days(r.ssl_days, cfg.SSL_WARN_DAYS) }}{% endif %}</dd>
+        <dt>TLS version</dt><dd>{{ r.tls_version or '—' }}</dd>
+      </dl>
+    </div>
+{% endmacro %}
+
+{% macro domain_block(r) %}
+    <div class="block">
+      <h4>Domain</h4>
+      <dl>
+        <dt>Domain</dt><dd>{{ r.domain or '—' }}</dd>
+        <dt>Registrar</dt><dd>{{ r.domain_registrar or '—' }}</dd>
+        <dt>Expires</dt>
+        <dd>{% if r.domain_expires %}{{ r.domain_expires|fmtdate }} · {{ days(r.domain_days, cfg.DOMAIN_WARN_DAYS) }}{% else %}<span class="muted">{{ r.domain_note or '—' }}</span>{% endif %}</dd>
+      </dl>
+    </div>
+{% endmacro %}
+
+{% macro site_row(r) %}
+<details class="site site-{{ r.status|lower }}">
+  <summary class="row">
+    <div class="cell cell-site">
+      <span class="favicon">{{ icon('globe') }}{% if r.favicon %}<img src="{{ r.favicon }}" alt="" loading="lazy">{% endif %}</span>
+      <span class="site-text">
+        <span class="site-name">{{ r.name }}</span>
+        {% if r.error %}<span class="site-sub c-down">{{ r.error }}</span>
+        {% elif r.description or r.title %}<span class="site-sub">{{ r.description or r.title }}</span>{% endif %}
+      </span>
+    </div>
+    {{ status_cell(r) }}
+    {{ resp_cell(r) }}
+    <div class="cell cell-upd">
+      <span class="cell-label">Updated</span>
+      {% if r.updated %}<span class="metric-sm">{{ r.updated|ago }}</span>{% else %}<span class="metric-sm muted">Unknown</span>{% endif %}
+    </div>
+    {{ ssl_cell(r) }}
+    {{ domain_cell(r) }}
+    <div class="cell cell-sec">
+      <span class="cell-label">Security</span>
+      {% if r.sec_grade %}<span class="grade grade-{{ r.sec_grade|lower }}">{{ r.sec_grade }}</span>{% else %}<span class="metric-sm muted">—</span>{% endif %}
+    </div>
+    <span class="chev-cell">{{ icon('chevron') }}</span>
+  </summary>
+
+  <div class="detail">
+    {{ timing_block(r) }}
     <div class="block">
       <h4>Redirects &amp; HTTPS</h4>
       <dl>
@@ -80,25 +123,8 @@
       </dl>
     </div>
 
-    <div class="block">
-      <h4>SSL certificate</h4>
-      <dl>
-        <dt>Issuer</dt><dd>{{ r.ssl_issuer or '—' }}</dd>
-        <dt>Expires</dt><dd>{{ r.ssl_expires|fmtdate or '—' }}{% if r.ssl_days is not none %} · {{ days(r.ssl_days, cfg.SSL_WARN_DAYS) }}{% endif %}</dd>
-        <dt>TLS version</dt><dd>{{ r.tls_version or '—' }}</dd>
-      </dl>
-    </div>
-
-    <div class="block">
-      <h4>Domain</h4>
-      <dl>
-        <dt>Domain</dt><dd>{{ r.domain or '—' }}</dd>
-        <dt>Registrar</dt><dd>{{ r.domain_registrar or '—' }}</dd>
-        <dt>Expires</dt>
-        <dd>{% if r.domain_expires %}{{ r.domain_expires|fmtdate }} · {{ days(r.domain_days, cfg.DOMAIN_WARN_DAYS) }}{% else %}<span class="muted">{{ r.domain_note or '—' }}</span>{% endif %}</dd>
-      </dl>
-    </div>
-
+    {{ ssl_block(r) }}
+    {{ domain_block(r) }}
     <div class="block">
       <h4>Security headers {% if r.sec_grade %}<span class="grade grade-{{ r.sec_grade|lower }}">{{ r.sec_grade }}</span>{% endif %}</h4>
       {% if r.sec_headers %}
@@ -122,12 +148,12 @@
 </details>
 {% endmacro %}
 
-{% macro pending_row(url) %}
+{% macro pending_row(site) %}
 <div class="site">
   <div class="row">
     <div class="cell cell-site">
       <span class="favicon">{{ icon('globe') }}</span>
-      <span class="site-text"><span class="site-name">{{ url.split('//', 1)[-1].strip('/') }}</span><span class="site-sub">{{ url }}</span></span>
+      <span class="site-text"><span class="site-name">{{ site.name or site.url.split('//', 1)[-1].strip('/') }}</span><span class="site-sub {{ 'c-down' if site.config_error }}">{{ site.config_error or site.url }}</span></span>
     </div>
     <div class="cell cell-status"><span class="badge badge-pending">{{ icon('clock') }}Not checked</span></div>
     <div class="cell cell-resp"><span class="cell-label">Response</span><span class="metric muted">—</span></div>
@@ -135,6 +161,91 @@
     <div class="cell cell-ssl"><span class="cell-label">SSL</span><span class="metric-sm muted">—</span></div>
     <div class="cell cell-domain"><span class="cell-label">Domain</span><span class="metric-sm muted">—</span></div>
     <div class="cell cell-sec"><span class="cell-label">Security</span><span class="metric-sm muted">—</span></div>
+    <span class="chev-cell"></span>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro api_row(r) %}
+<details class="site site-{{ r.status|lower }}">
+  <summary class="row">
+    <div class="cell cell-site">
+      <span class="favicon">{{ icon('code') }}</span>
+      <span class="site-text">
+        <span class="site-name">{{ r.name }}</span>
+        {% if r.error %}<span class="site-sub c-down">{{ r.error }}</span>
+        {% else %}<span class="site-sub"><b class="method">{{ r.method }}</b> {{ r.url }}</span>{% endif %}
+      </span>
+    </div>
+    {{ status_cell(r) }}
+    {{ resp_cell(r) }}
+    <div class="cell cell-upd">
+      <span class="cell-label">Checks</span>
+      {% if r.checks %}{% set passed = r.checks | selectattr(1) | list | length %}
+        <span class="metric-sm {{ 'c-down' if passed < r.checks|length }}">{{ passed }}/{{ r.checks|length }} passed</span>
+      {% else %}<span class="metric-sm muted">—</span>{% endif %}
+    </div>
+    {{ ssl_cell(r) }}
+    {{ domain_cell(r) }}
+    <div class="cell cell-sec">
+      <span class="cell-label">Format</span>
+      <span class="metric-sm {{ 'muted' if not r.content_type }}">{{ (r.content_type or '—').split('/')[-1] | truncate(12, True, '…') }}</span>
+    </div>
+    <span class="chev-cell">{{ icon('chevron') }}</span>
+  </summary>
+
+  <div class="detail">
+    {{ timing_block(r) }}
+
+    <div class="block">
+      <h4>Expected response</h4>
+      {% if r.checks %}
+      <ul class="checks checks-list">
+        {% for label, ok, detail in r.checks %}
+        <li class="{{ 'is-ok' if ok else 'is-missing' }}">{{ icon('check' if ok else 'x') }}<span>{{ label }}{% if detail %}<small>{{ detail }}</small>{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="muted">No response received.</p>{% endif %}
+    </div>
+
+    <div class="block">
+      <h4>Request</h4>
+      <dl>
+        <dt>Method</dt><dd>{{ r.method or '—' }}</dd>
+        <dt>URL</dt><dd>{{ r.url or '—' }}</dd>
+        <dt>Redirects</dt>
+        <dd>{% if r.redirects %}<ol class="chain">{% for h in r.redirects %}<li><span class="code-chip">{{ h.code }}</span>{{ h.url }}</li>{% endfor %}</ol>{% else %}None{% endif %}</dd>
+      </dl>
+    </div>
+
+    <div class="block">
+      <h4>Response</h4>
+      <dl>
+        <dt>HTTP status</dt><dd>{{ r.code or '—' }}</dd>
+        <dt>Content type</dt><dd>{{ r.content_type or '—' }}</dd>
+        <dt>Size</dt><dd>{% if r.size is not none %}{{ '{:,}'.format(r.size) }} bytes{% else %}—{% endif %}</dd>
+      </dl>
+    </div>
+
+    {{ ssl_block(r) }}
+    {{ domain_block(r) }}
+  </div>
+</details>
+{% endmacro %}
+
+{% macro api_pending_row(api) %}
+<div class="site">
+  <div class="row">
+    <div class="cell cell-site">
+      <span class="favicon">{{ icon('code') }}</span>
+      <span class="site-text"><span class="site-name">{{ api.name }}</span><span class="site-sub"><b class="method">{{ api.method }}</b> {{ api.display_url }}</span></span>
+    </div>
+    <div class="cell cell-status"><span class="badge badge-pending">{{ icon('clock') }}Not checked</span></div>
+    <div class="cell cell-resp"><span class="cell-label">Response</span><span class="metric muted">—</span></div>
+    <div class="cell cell-upd"><span class="cell-label">Checks</span><span class="metric-sm muted">—</span></div>
+    <div class="cell cell-ssl"><span class="cell-label">SSL</span><span class="metric-sm muted">—</span></div>
+    <div class="cell cell-domain"><span class="cell-label">Domain</span><span class="metric-sm muted">—</span></div>
+    <div class="cell cell-sec"><span class="cell-label">Format</span><span class="metric-sm muted">—</span></div>
     <span class="chev-cell"></span>
   </div>
 </div>

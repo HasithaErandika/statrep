@@ -236,6 +236,10 @@ summary.row:focus-visible { outline: 2px solid rgba(196, 13, 66, .35); outline-o
 .checks .is-ok .i { color: var(--up); }
 .checks .is-missing { color: var(--muted); }
 .checks .is-missing .i { color: var(--crimson); }
+.checks-list li { align-items: flex-start; }
+.checks-list .i { flex: none; margin-top: 2px; }
+.checks-list small { display: block; font-size: 12px; color: var(--crimson); }
+.method { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; color: var(--purple); }
 
 /* ---------- Quick check ---------- */
 .quick-form { display: flex; gap: 10px; align-items: stretch; padding: 0 24px 18px; }

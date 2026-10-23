@@ -1,6 +1,8 @@
-{% set down = results | selectattr('status', 'equalto', 'DOWN') | list %}
-{% set slow = results | selectattr('status', 'equalto', 'SLOW') | list %}
-{% set timed = results | selectattr('ms') | map(attribute='ms') | list %}
+{% set everything = results + apis %}
+{% set noun = 'services' if apis else 'websites' %}
+{% set down = everything | selectattr('status', 'equalto', 'DOWN') | list %}
+{% set slow = everything | selectattr('status', 'equalto', 'SLOW') | list %}
+{% set timed = everything | selectattr('ms') | map(attribute='ms') | list %}
 {% set level = 'down' if down else ('slow' if slow else 'up') %}
 {% set tone = {
   'up':   {'fg': '#0b7a55', 'bg': '#e9f8f1', 'line': '#b4e6d0'},
@@ -14,7 +16,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>StatRep Website Status Report</title>
+  <title>StatRep Status Report</title>
 </head>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:{{ font }};color:#1a1a1a;-webkit-font-smoothing:antialiased">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5">
@@ -30,7 +32,7 @@
         <td valign="middle" width="52"><img src="{{ logo_src }}" width="44" height="44" alt="StatRep" style="display:block;border:0"></td>
         <td valign="middle" style="padding-left:10px">
           <div style="font-size:19px;font-weight:700;letter-spacing:-.3px">Stat<span style="color:#c40d42">Rep</span></div>
-          <div style="font-size:12px;color:#737373">Website Status Report</div>
+          <div style="font-size:12px;color:#737373">{{ 'Website & API' if apis else 'Website' }} Status Report</div>
         </td>
         <td valign="middle" align="right" style="font-size:12px;color:#737373;line-height:1.5">
           {{ run.started_at }}<br>{{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} check
@@ -46,9 +48,9 @@
             {{ {'up': 'All clear', 'slow': 'Attention', 'down': 'Action required'}[level] }}
           </div>
           <div style="font-size:22px;font-weight:700;letter-spacing:-.4px;margin-top:4px;color:#1a1a1a">
-            {% if down %}{{ down|length }} of {{ run.total }} websites are down
-            {% elif slow %}All websites reachable, {{ slow|length }} responding slowly
-            {% else %}All {{ run.total }} websites are operational{% endif %}
+            {% if down %}{{ down|length }} of {{ run.total }} {{ noun }} are down
+            {% elif slow %}All {{ noun }} reachable, {{ slow|length }} responding slowly
+            {% else %}All {{ run.total }} {{ noun }} are operational{% endif %}
           </div>
           {% if down %}
           <div style="font-size:13px;color:#525252;margin-top:6px">Down: {{ down | map(attribute='name') | join(', ') }}</div>
@@ -62,7 +64,7 @@
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px">
         <tr>
           {% for label, value, color in [
-            ('Operational', results|length - down|length - slow|length, '#0b7a55'),
+            ('Operational', everything|length - down|length - slow|length, '#0b7a55'),
             ('Slow', slow|length, '#b45f06'),
             ('Down', down|length, '#c40d42' if down else '#1a1a1a'),
             ('Avg. response', ((timed|sum / timed|length)|int ~ ' ms') if timed else '-', '#1a1a1a')] %}
@@ -76,6 +78,7 @@
     </td></tr>
 
     <!-- Websites -->
+    {% if results %}
     <tr><td style="padding:16px 28px 8px">
       <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#737373;margin-bottom:8px">Websites</div>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px;border-collapse:separate;overflow:hidden;font-size:13px">
@@ -84,7 +87,7 @@
           <th align="left" style="padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#737373;border-bottom:1px solid #ececec">{{ h }}</th>
           {% endfor %}
         </tr>
-        {% for r in (down + slow + (results | selectattr('status', 'equalto', 'UP') | list)) %}
+        {% for r in results | selectattr('status', 'equalto', 'DOWN') | list + results | selectattr('status', 'equalto', 'SLOW') | list + results | selectattr('status', 'equalto', 'UP') | list %}
         {% set t = tone[{'UP': 'up', 'SLOW': 'slow', 'DOWN': 'down'}[r.status]] %}
         <tr>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
@@ -107,6 +110,43 @@
         {% endfor %}
       </table>
     </td></tr>
+    {% endif %}
+
+    <!-- APIs -->
+    {% if apis %}
+    <tr><td style="padding:16px 28px 8px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#737373;margin-bottom:8px">APIs</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px;border-collapse:separate;overflow:hidden;font-size:13px">
+        <tr style="background:#fafafa">
+          {% for h in ['API', 'Status', 'HTTP', 'Response', 'Checks', 'SSL', 'Domain'] %}
+          <th align="left" style="padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#737373;border-bottom:1px solid #ececec">{{ h }}</th>
+          {% endfor %}
+        </tr>
+        {% for r in apis | selectattr('status', 'equalto', 'DOWN') | list + apis | selectattr('status', 'equalto', 'SLOW') | list + apis | selectattr('status', 'equalto', 'UP') | list %}
+        {% set t = tone[{'UP': 'up', 'SLOW': 'slow', 'DOWN': 'down'}[r.status]] %}
+        {% set passed = r.checks | selectattr(1) | list | length %}
+        <tr>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
+            <div style="color:#1a1a1a;font-weight:600">{{ r.name }}</div>
+            <div style="color:#737373;font-size:11px;margin-top:2px"><b style="color:#7b1b67">{{ r.method }}</b> {{ r.url }}</div>
+            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ r.error }}</div>{% endif %}
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
+            <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border:1px solid {{ t.line }}">{{ labels[r.status] }}</span>
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252">{{ r.code or '-' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ms ~ ' ms' if r.ms else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if passed < r.checks|length else 'color:#525252' }}">
+            {{ passed ~ '/' ~ r.checks|length if r.checks else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.ssl_days is not none and r.ssl_days < ssl_warn_days else 'color:#525252' }}">
+            {{ r.ssl_days ~ ' days' if r.ssl_days is not none else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.domain_days is not none and r.domain_days < domain_warn_days else 'color:#525252' }}">
+            {% if r.domain_days is not none %}{{ r.domain_days }} days{% elif r.domain_note and r.domain_note.startswith('Shared') %}Shared{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td></tr>
+    {% endif %}
 
     {% if dashboard_url %}
     <tr><td align="center" style="padding:20px 28px 4px">
@@ -116,7 +156,7 @@
 
     <!-- Footer -->
     <tr><td style="padding:20px 28px 24px;font-size:12px;color:#8a8a8a;line-height:1.6">
-      Automated report from StatRep. Checks run daily at {{ check_times | join(' and ') }} ({{ tz }}).
+      Automated report from StatRep. Checks run daily at {{ check_times | humanlist }} ({{ tz }}).
     </td></tr>
   </table>
 

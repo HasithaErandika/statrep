@@ -4,7 +4,23 @@ services:
     container_name: statrep
     env_file: .env
     ports:
-      - "${PORT:-8080}:8080"
+      # Set BIND=127.0.0.1 in .env when a reverse proxy (nginx, Caddy) sits in front
+      - "${BIND:-0.0.0.0}:${PORT:-9090}:8080"
     volumes:
-      - ./config:/app/config:ro   # edit config/sites.txt, then: docker compose restart
+      - ./config:/app/config:ro   # edit config/sites.yml or apis.yml, then: docker compose restart
     restart: unless-stopped
+    # Hardening: read-only filesystem, no extra privileges, bounded resources
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 200
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
