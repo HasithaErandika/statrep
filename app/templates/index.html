@@ -8,8 +8,9 @@
   <link rel="preload" href="{{ url_for('static', filename='fonts/inter.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
-{% from "_site.html" import site_row, pending_row, icon with context %}
+<body data-check-url="{{ url_for('check_once') }}" data-status-url="{{ url_for('api_status') }}" data-running="{{ 'true' if running else 'false' }}">
+{% from "_site.html" import site_row, pending_row, api_row, api_pending_row, icon with context %}
+{% set noun = 'services' if (apis or api_list) else 'websites' %}
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
@@ -25,6 +26,7 @@
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h6M16 13H8M16 17H8M10 9H8"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
     <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></symbol>
   </defs>
 </svg>
@@ -37,7 +39,7 @@
     </a>
     <div class="header-meta">
       <span class="chip">{{ icon('clock') }}<span>Next check <strong>{{ next_run }}</strong></span></span>
-      <span class="chip chip-hide-sm">{{ icon('mail') }}<span>{{ cfg.MAIL_TO | join(', ') if cfg.EMAIL_CONFIGURED else 'Email not configured' }}</span></span>
+      <span class="chip chip-hide-sm">{{ icon('mail') }}<span>{% if cfg.EMAIL_CONFIGURED %}Emailed to {{ cfg.MAIL_TO|length }} recipient{{ 's' if cfg.MAIL_TO|length > 1 }}{% else %}Email not configured{% endif %}</span></span>
     </div>
   </div>
 </header>
@@ -51,13 +53,13 @@
       <div class="summary-text">
         <h1>
           {% if not run %}No checks yet
-          {% elif counts.DOWN %}{{ counts.DOWN }} of {{ run.total }} websites down
-          {% elif counts.SLOW %}{{ counts.SLOW }} website{{ 's' if counts.SLOW > 1 }} responding slowly
-          {% else %}All websites operational{% endif %}
+          {% elif counts.DOWN %}{{ counts.DOWN }} of {{ run.total }} {{ noun }} down
+          {% elif counts.SLOW %}{{ counts.SLOW }} {{ noun[:-1] }}{{ 's' if counts.SLOW > 1 }} responding slowly
+          {% else %}All {{ noun }} operational{% endif %}
         </h1>
         <p>
-          {% if running %}Checking all websites now. This page refreshes automatically.
-          {% elif run %}Last checked {{ run.started_at }} · {{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} run{% if run.emailed %} · Report emailed{% endif %}
+          {% if running %}Checking all {{ noun }} now. This page refreshes automatically.
+          {% elif run %}Last checked {{ run.started_at }} · {{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} run · {{ run.total }} checked in {{ run.seconds }}s{% if run.emailed %} · Report emailed{% endif %}
           {% else %}Run a check now, or wait for the next scheduled check.{% endif %}
         </p>
       </div>
@@ -89,6 +91,9 @@
     {% endif %}
   </section>
 
+  {% if wait %}
+    <div class="alert alert-error" role="alert">{{ icon('clock') }}A check was run recently. Please wait {{ wait }} seconds before running another.</div>
+  {% endif %}
   {% if note and note[0] == 'error' and not running %}
     <div class="alert alert-error" role="alert">{{ icon('x') }}{{ note[1] }}</div>
   {% endif %}
@@ -97,7 +102,7 @@
     <div class="card-head">
       <div>
         <h2>Websites <span class="count">{{ results|length if run else sites|length }}</span></h2>
-        <p>Checked daily at {{ cfg.CHECK_TIMES | join(' and ') }} ({{ cfg.TZ }}) and emailed. Click a website for full details.</p>
+        <p>Checked daily at {{ cfg.CHECK_TIMES | humanlist }} ({{ cfg.TZ }}) and emailed. Click a website for full details.</p>
       </div>
     </div>
     <div class="rows">
@@ -111,6 +116,27 @@
       {% endif %}
     </div>
   </section>
+
+  {% if apis or api_list %}
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2>APIs <span class="count">{{ apis|length if run else api_list|length }}</span></h2>
+        <p>Each API is called and its response compared with what <code>config/apis.yml</code> expects. Click an API for details.</p>
+      </div>
+    </div>
+    <div class="rows">
+      <div class="row row-head" aria-hidden="true">
+        <span>API</span><span>Status</span><span>Response</span><span>Checks</span><span>SSL</span><span>Domain</span><span>Format</span><span></span>
+      </div>
+      {% if run and apis %}
+        {% for r in apis %}{{ api_row(r) }}{% endfor %}
+      {% else %}
+        {% for a in api_list %}{{ api_pending_row(a) }}{% endfor %}
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 
   <section class="card">
     <div class="card-head">
@@ -131,71 +157,10 @@
 <footer class="footer">
   <div class="container footer-inner">
     <span class="footer-brand"><img src="{{ url_for('static', filename='favicon.png') }}" alt="" width="16" height="16">StatRep · Website monitoring</span>
-    <span>Websites are listed in <code>config/sites.txt</code></span>
+    <span>Websites are listed in <code>config/sites.yml</code>, APIs in <code>config/apis.yml</code></span>
   </div>
 </footer>
 
-<script>
-(function () {
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
-    });
-  }
-  function setBusy(btn, busy, idleIcon, idleText) {
-    btn.disabled = busy;
-    btn.classList.toggle('is-loading', busy);
-    btn.querySelector('use').setAttribute('href', busy ? '#i-loader' : idleIcon);
-    btn.querySelector('span').textContent = busy ? 'Checking…' : idleText;
-  }
-
-  document.getElementById('run-form').addEventListener('submit', function () {
-    setBusy(this.querySelector('button'), true);
-  });
-
-  document.addEventListener('click', function (e) {
-    document.querySelectorAll('details.menu[open]').forEach(function (m) { if (!m.contains(e.target)) m.removeAttribute('open'); });
-  });
-
-  var form = document.getElementById('quick-form');
-  var input = document.getElementById('quick-urls');
-  var errBox = document.getElementById('quick-error');
-  var out = document.getElementById('quick-results');
-  input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) form.requestSubmit();
-  });
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var btn = form.querySelector('button');
-    errBox.hidden = true;
-    setBusy(btn, true);
-    fetch('{{ url_for("check_once") }}', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({urls: input.value.split(/[\s,]+/).filter(Boolean)})
-    })
-      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
-      .then(function (res) {
-        if (!res.ok) throw new Error(res.d.error || 'Check failed.');
-        out.innerHTML = res.d.html;
-        out.hidden = false;
-      })
-      .catch(function (err) {
-        errBox.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-x"/></svg>' + esc(err.message);
-        errBox.hidden = false;
-      })
-      .then(function () { setBusy(btn, false, '#i-search', 'Check'); });
-  });
-
-  var running = {{ 'true' if running else 'false' }};
-  if (running) {
-    (function poll() {
-      fetch('{{ url_for("api_status") }}', {cache: 'no-store'})
-        .then(function (r) { return r.json(); })
-        .then(function (d) { d.running ? setTimeout(poll, 2000) : location.reload(); })
-        .catch(function () { setTimeout(poll, 4000); });
-    })();
-  }
-})();
-</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

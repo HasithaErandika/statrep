@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from . import config
+from .checker import DateOnly
 
 
 def ago(dt):
@@ -23,11 +24,18 @@ def fmtdate(dt):
     """Local date, with time unless the source only gave a date."""
     if not dt:
         return ""
-    if dt.hour == dt.minute == dt.second == 0:
+    if isinstance(dt, DateOnly):
         return dt.strftime("%d %b %Y")
     return dt.astimezone(ZoneInfo(config.TZ)).strftime("%d %b %Y, %H:%M")
 
 
+def humanlist(items):
+    """['a', 'b', 'c'] -> 'a, b and c'"""
+    items = list(items)
+    return " and ".join(filter(None, [", ".join(items[:-1]), items[-1] if items else ""]))
+
+
 def register(env):
+    env.filters["humanlist"] = humanlist
     env.filters["ago"] = ago
     env.filters["fmtdate"] = fmtdate

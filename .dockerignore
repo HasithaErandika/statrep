@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 .venv/
 README.md
+tests/
+.github/
+AUDIT.md
+requirements-dev.txt
+.pytest_cache/
