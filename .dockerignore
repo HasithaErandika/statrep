@@ -6,6 +6,5 @@ __pycache__/
 README.md
 tests/
 .github/
-AUDIT.md
 requirements-dev.txt
 .pytest_cache/
