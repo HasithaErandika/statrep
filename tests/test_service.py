@@ -17,7 +17,7 @@ def no_real_checks(monkeypatch):
     monkeypatch.setattr(checker, "check_everything", fake_check)
     monkeypatch.setattr(config, "EMAIL_CONFIGURED", False)
     monkeypatch.setattr(config, "EMAIL_PROBLEM", "SMTP settings are missing in .env")
-    monkeypatch.setattr(service, "_last_manual", 0.0)
+    monkeypatch.setattr(service, "_last_manual", None)
     service.latest.update(running=False)
     return calls
 
@@ -75,7 +75,7 @@ def test_email_latest_sends_current_results(monkeypatch):
     monkeypatch.setitem(service.latest, "run", None)
     assert service.email_latest()[0][0] == "error" and not sent               # no results yet
     service.run_check("manual")
-    monkeypatch.setattr(service, "_last_manual", 0.0)
+    monkeypatch.setattr(service, "_last_manual", None)
     note, wait = service.email_latest()
     assert note == ("info", "ok") and wait == 0
     run, results = sent[-1]
@@ -90,3 +90,11 @@ def test_check_without_email_but_scheduled_always_emails(monkeypatch):
     assert not sent and service.latest["note"] == ("info", "Not emailed.")
     service.run_check("scheduled", email=False)
     assert len(sent) == 1
+
+
+def test_cooldown_right_after_boot(monkeypatch):
+    # time.monotonic() is close to 0 just after a reboot (e.g. a fresh CI runner): no wait yet
+    monkeypatch.setattr(service.time, "monotonic", lambda: 5.0)
+    monkeypatch.setattr(service, "run_check", lambda trigger, email=True: service.latest.update(running=False))
+    assert service.start_check("manual") == 0
+    assert service.start_check("manual") == config.RUN_COOLDOWN

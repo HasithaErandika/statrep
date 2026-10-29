@@ -16,9 +16,18 @@ SINGLE_COOLDOWN = 20      # seconds before the same website can be checked on it
 
 # Latest report, shown in the UI (no database: resets when the app restarts)
 latest = {"run": None, "results": [], "apis": [], "note": None, "running": False}
-_last_manual = 0.0
+_last_manual = None  # time of the last manual run/email; None = never
 _last_single = {}  # site url -> time of its last single-site check (per-site cooldown)
 _single_slots = threading.BoundedSemaphore(3)  # single-site checks running at the same time
+
+
+def _cooldown_left(last, cooldown):
+    """Whole seconds until `cooldown` has passed since `last` (a time.monotonic() value; None = never).
+
+    Not "last = 0": monotonic time starts near 0 at boot, so that would block the first runs
+    after a (CI or server) reboot.
+    """
+    return 0 if last is None else int(last + cooldown - time.monotonic())
 
 
 def start_check(trigger="manual", email=True):
@@ -30,7 +39,7 @@ def start_check(trigger="manual", email=True):
     with _cooldown_lock:
         if latest["running"]:
             return 0
-        wait = int(_last_manual + config.RUN_COOLDOWN - time.monotonic())
+        wait = _cooldown_left(_last_manual, config.RUN_COOLDOWN)
         if wait > 0:
             return wait
         _last_manual = time.monotonic()
@@ -80,7 +89,7 @@ def check_single(site):
     """
     url = site["url"]
     with _cooldown_lock:
-        wait = int(_last_single.get(url, -SINGLE_COOLDOWN) + SINGLE_COOLDOWN - time.monotonic())
+        wait = _cooldown_left(_last_single.get(url), SINGLE_COOLDOWN)
         if wait > 0:
             return None, wait
         _last_single[url] = time.monotonic()
@@ -101,7 +110,7 @@ def email_latest():
     with _cooldown_lock:
         if latest["running"] or not latest["run"]:
             return ("error", "There are no finished results to email yet."), 0
-        wait = int(_last_manual + config.RUN_COOLDOWN - time.monotonic())
+        wait = _cooldown_left(_last_manual, config.RUN_COOLDOWN)
         if wait > 0:
             return None, wait
         _last_manual = time.monotonic()
