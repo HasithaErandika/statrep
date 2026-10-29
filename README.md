@@ -12,12 +12,17 @@ everyone on your list. A web page shows the latest results and lets you run a ch
 ## Quick start
 
 ```bash
+git clone https://github.com/HasithaErandika/statrep.git && cd statrep
 cp .env.example .env          # then fill in the SMTP details and MAIL_TO
 chmod 600 .env                # keep the passwords private
 docker compose up -d --build
 ```
 
 Open `http://<server-ip>:9090`. The container restarts automatically after reboots.
+
+**Full setup guide: [SETUP.md](SETUP.md).** It covers installing Docker, starting from a
+clone (Docker, or Python without Docker for development), from a shared image file or from a
+code zip, configuration, server firewall, login and HTTPS.
 
 ---
 
@@ -160,7 +165,8 @@ to them as `${NAME}`. Header values and bodies never appear in the page, email o
 | `TZ` | `Asia/Colombo` | Time zone for the schedule and report times |
 | `CHECK_TIMES` | `06:00,07:45,16:30,20:00` | Daily check times, `HH:MM`, comma-separated |
 | `SMTP_HOST` / `SMTP_PORT` | Brevo / `587` | Mail server (587 = STARTTLS, 465 = SSL) |
-| `SMTP_USER` / `SMTP_PASS` | – | Mail server login |
+| `SMTP_USER` / `SMTP_PASS` | – | Mail server login. Leave both empty for a relay that allows this server by IP |
+| `SMTP_TLS` | `on` | STARTTLS on ports other than 465. Set `off` only for an internal relay without TLS |
 | `MAIL_FROM` | `SMTP_USER` | Sender address (must be verified with your provider) |
 | `MAIL_TO` | – | Recipients, comma-separated, any number |
 | `CHECK_TIMEOUT` | `20` | Seconds to wait for a response |
@@ -198,7 +204,7 @@ see `docker compose logs`.
 
 | Symptom | Cause / fix |
 |---|---|
-| "Email not sent: SMTP settings are missing" | Fill in `SMTP_USER`, `SMTP_PASS` and `MAIL_TO` in `.env`, then `docker compose up -d` |
+| "Email not sent: SMTP settings are missing" | Fill in `SMTP_HOST`, `MAIL_FROM` and `MAIL_TO` in `.env` (plus `SMTP_USER` / `SMTP_PASS` unless the relay allows your IP), then `docker compose up -d` |
 | "Email failed: SMTP login was rejected" | Wrong `SMTP_USER` / `SMTP_PASS` |
 | "Email failed: the sender address was refused" | `MAIL_FROM` is not a verified sender with your provider |
 | "Email not sent: MAIL_FROM … is not a valid email address" | Fix `MAIL_FROM` in `.env` |
@@ -243,6 +249,7 @@ statrep/
 ├── .github/               # CI workflow (tests, pip-audit, Docker build) and Dependabot
 ├── .env                   # credentials + settings (not committed)
 ├── .env.example
+├── SETUP.md               # installation and start options
 ├── AUDIT.md               # code audit
 ├── Dockerfile
 ├── docker-compose.yml

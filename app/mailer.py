@@ -53,8 +53,10 @@ def _connect():
         server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT, timeout=30, context=ctx)
     else:
         server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30)
-        server.starttls(context=ctx)
-    server.login(config.SMTP_USER, config.SMTP_PASS)
+        if config.SMTP_TLS:
+            server.starttls(context=ctx)
+    if config.SMTP_USER:  # no login for relays that allow the server by IP
+        server.login(config.SMTP_USER, config.SMTP_PASS)
     return server
 
 
