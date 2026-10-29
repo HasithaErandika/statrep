@@ -103,6 +103,7 @@ def create_app():
     @app.get("/")
     def index():
         results, apis = service.latest["results"], service.latest["apis"]
+        sites = config.load_sites()
         everything = results + apis
         wait = request.args.get("wait", type=int)
         timed = [r.ms for r in everything if r.ms]
@@ -113,21 +114,32 @@ def create_app():
             note=service.latest["note"],
             running=service.latest["running"],
             results=sorted(results, key=lambda r: STATUS_ORDER.get(r.status, 2)),
+            order={s["url"]: i for i, s in enumerate(sites)},  # "As in sites.yml" sort
             apis=sorted(apis, key=lambda r: STATUS_ORDER.get(r.status, 2)),
             counts={**{s: sum(r.status == s for r in everything) for s in ("UP", "SLOW", "DOWN")},
                     "EXPIRING": sum(r.expiring for r in everything)},
             avg_ms=int(sum(timed) / len(timed)) if timed else 0,
-            sites=config.load_sites(),
+            sites=sites,
             api_list=config.load_apis(),
             next_run=min(next_runs).strftime("%a %d %b, %H:%M") if next_runs else "-",
             wait=wait if wait and wait > 0 else None,
+            sent=request.args.get("sent") == "1",
             cfg=config,
         )
 
     @app.post("/run")
     def run_now():
-        wait = service.start_check("manual")
+        """Check everything now; the form's "email" field says whether to email the report."""
+        wait = service.start_check("manual", email=request.form.get("email") == "1")
         return redirect(url_for("index", wait=wait) if wait else url_for("index"))
+
+    @app.post("/email")
+    def email_report():
+        """Email the results shown on the page, including single re-checks, without checking again."""
+        note, wait = service.email_latest()
+        if wait:
+            return redirect(url_for("index", wait=wait))
+        return redirect(url_for("index", sent=1 if note[0] == "info" else None))
 
     @app.get("/report.<fmt>")
     def download_report(fmt):
@@ -142,7 +154,7 @@ def create_app():
             out = io.StringIO()
             writer = csv.writer(out)
             writer.writerow([
-                "Type", "Name", "URL", "Status", "HTTP", "Response (ms)", "DNS (ms)", "Connect (ms)",
+                "Type", "Name", "URL", "Status", "Down reason", "HTTP", "Response (ms)", "DNS (ms)", "Connect (ms)",
                 "TLS (ms)", "Server (ms)", "Download (ms)", "Final URL", "Redirects", "HTTPS enforced",
                 "SSL issuer", "SSL expires", "SSL days left", "TLS version", "Domain", "Registrar",
                 "Domain expires", "Domain days left", "Security grade", "Missing security headers",
@@ -153,7 +165,8 @@ def create_app():
                 t = r.timing
                 passed = f"{sum(ok for _, ok, _ in r.checks)}/{len(r.checks)}" if r.checks else ""
                 writer.writerow([
-                    "API" if r.kind == "api" else "Website", r.name, r.url, r.status, r.code or "", r.ms or "", t.get("dns", ""),
+                    "API" if r.kind == "api" else "Website", r.name, r.url, r.status,
+                    r.down_reason[0] if r.down_reason else "", r.code or "", r.ms or "", t.get("dns", ""),
                     t.get("connect", ""), t.get("tls", ""), t.get("server", ""), t.get("download", ""),
                     r.final_url or "", " > ".join(f"{h['code']} {h['url']}" for h in r.redirects),
                     {True: "Yes", False: "No"}.get(r.https_enforced, ""),
@@ -200,6 +213,17 @@ def create_app():
             _quick_slots.release()
         results = sorted(results, key=lambda r: STATUS_ORDER.get(r.status, 2))
         return jsonify(html=render_template("_rows.html", results=results, cfg=config))
+
+    @app.post("/api/site-check")
+    def check_site():
+        """Check one website from sites.yml again (not emailed)."""
+        site = service.find_site(str((request.get_json(silent=True) or {}).get("url", "")))
+        if not site:
+            return jsonify(error="This website is not in config/sites.yml."), 404
+        result, wait = service.check_single(site)
+        if wait:
+            return jsonify(error=f"This website was checked recently. Please wait {wait} seconds."), 429
+        return jsonify(html=render_template("_rows.html", results=[result], cfg=config, single=True))
 
     @app.get("/api/status")
     def api_status():

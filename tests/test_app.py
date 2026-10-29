@@ -30,7 +30,7 @@ def test_security_headers(client):
     ("null", 403),
 ])
 def test_post_origin_check(client, monkeypatch, origin, status):
-    monkeypatch.setattr(main.service, "start_check", lambda trigger: 0)
+    monkeypatch.setattr(main.service, "start_check", lambda trigger, email=True: 0)
     headers = {"Origin": origin} if origin else {}
     assert client.post("/run", headers=headers).status_code == status
 
@@ -73,3 +73,22 @@ def test_filters():
     assert filters.fmtdate(DateOnly(2025, 1, 31, tzinfo=timezone.utc)) == "31 Jan 2025"
     # A real timestamp at UTC midnight keeps its (local) time
     assert filters.fmtdate(datetime(2025, 1, 31, tzinfo=timezone.utc)) == "31 Jan 2025, 05:30"
+
+
+def test_single_site_check_endpoint(client, monkeypatch):
+    monkeypatch.setattr(config, "load_sites", lambda: [{"url": "https://a.com", "name": "A"}])
+    monkeypatch.setattr(main.service, "check_single",
+                        lambda site: (main.checker.Result(site["url"], site["name"], "UP", 200, 12), 0))
+    assert client.post("/api/site-check", json={"url": "https://not-configured.com"}).status_code == 404
+    r = client.post("/api/site-check", json={"url": "https://a.com"})
+    html = r.get_json()["html"]
+    assert r.status_code == 200 and 'data-key="https://a.com"' in html and "data-site-check" in html
+    monkeypatch.setattr(main.service, "check_single", lambda site: (None, 7))
+    assert client.post("/api/site-check", json={"url": "https://a.com"}).status_code == 429
+
+
+def test_page_has_list_tools(client, monkeypatch):
+    monkeypatch.setattr(config, "load_sites", lambda: [{"url": "https://a.com", "name": "A"}])
+    html = client.get("/").get_data(as_text=True)
+    assert 'id="site-search"' in html and 'data-filter="DOWN"' in html
+    assert 'data-site-check="https://a.com"' in html   # re-check button on not-yet-checked rows

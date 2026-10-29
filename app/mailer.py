@@ -1,5 +1,6 @@
 """Builds and sends the HTML status email."""
 import base64
+from collections import Counter
 import logging
 import smtplib
 import ssl
@@ -64,6 +65,11 @@ def subject_noun(apis):
     return "services" if apis else "websites"
 
 
+def reason_counts(down):
+    """[(reason, count)] for DOWN results, most common first."""
+    return Counter(r.down_reason[0] for r in down).most_common()
+
+
 def render_text(run, results, apis):
     """Plain-text version of the report, for text-only mail clients and spam filters."""
     everything = results + apis
@@ -76,13 +82,17 @@ def render_text(run, results, apis):
         headline = f"All {noun} reachable, {len(slow)} responding slowly"
     else:
         headline = f"All {run['total']} {noun} are operational"
-    lines = [f"StatRep status report – {run['started_at']}", "", headline, ""]
+    lines = [f"StatRep status report – {run['started_at']}", "", headline]
+    if down:
+        lines.append("Down: " + ", ".join(f"{n} {label}" for label, n in reason_counts(down)))
+    lines.append("")
     for title, items in (("Websites", results), ("APIs", apis)):
         if items:
             lines.append(f"{title}:")
             for r in sorted(items, key=lambda r: {"DOWN": 0, "SLOW": 1}.get(r.status, 2)):
                 detail = r.error or (f"{r.ms} ms" if r.ms else "")
-                lines.append(f"  {r.status:<4}  {r.name}  {detail}".rstrip())
+                status = f"DOWN ({r.down_reason[0]})" if r.down_reason else r.status
+                lines.append(f"  {status:<4}  {r.name}  {detail}".rstrip())
             lines.append("")
     if config.DASHBOARD_URL:
         lines.append(f"Dashboard: {config.DASHBOARD_URL}")

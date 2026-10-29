@@ -152,3 +152,30 @@ def test_config_error_entries_are_reported_not_checked():
     assert (r.status, r.error) == ("DOWN", "Config error: x")
     r = checker.check_api({"name": "api", "display_url": "", "config_error": "Config error: y"})
     assert (r.status, r.error, r.kind) == ("DOWN", "Config error: y", "api")
+
+
+@pytest.mark.parametrize("code, error, kind, label", [
+    (403, "HTTP 403 Forbidden", "site", "Forbidden"),
+    (401, "HTTP 401 Unauthorized", "site", "Login required"),
+    (404, "HTTP 404 Not Found", "site", "Not found"),
+    (418, "HTTP 418 I'm a teapot", "site", "Client error"),
+    (502, "HTTP 502 Bad Gateway", "site", "Bad gateway"),
+    (599, "HTTP 599", "site", "Server error"),
+    (200, "Page is empty", "site", "Empty page"),
+    (None, "Timed out after 20s", "site", "Timeout"),
+    (None, "Could not connect within 10s", "site", "Unreachable"),
+    (None, "Could not connect (DNS or server down)", "site", "No connection"),
+    (None, "SSL certificate error", "site", "SSL error"),
+    (None, "Config error: url must be an http(s) address", "site", "Config error"),
+    (200, "status: expected \"ok\", got \"fail\"", "api", "Unexpected response"),
+])
+def test_down_reason(code, error, kind, label):
+    r = checker.Result("https://a.com", "a", "DOWN", code, error=error, kind=kind)
+    assert r.down_reason[0] == label
+    assert checker.Result("https://a.com", "a", "UP", 200).down_reason is None
+
+
+def test_api_expected_error_code_is_not_reported_as_http_error():
+    # An API expected to return 404 that fails on its JSON check: the 404 itself is fine
+    r = checker.Result("https://a.com", "a", "DOWN", 404, error="x", kind="api", checks=[("HTTP status is 404", True, None)])
+    assert r.down_reason[0] == "Unexpected response"

@@ -82,7 +82,8 @@ def test_message_has_text_and_html_parts_and_logo():
     types = [part.get_content_type() for part in msg.walk()]
     assert types == ["multipart/related", "multipart/alternative", "text/plain", "text/html", "image/png"]
     text = msg.get_payload(0).get_payload(0).get_payload(decode=True).decode()
-    assert "1 of 2 websites are down" in text and "DOWN  b.com  Timed out after 20s" in text
+    assert "1 of 2 websites are down" in text and "DOWN (Timeout)  b.com  Timed out after 20s" in text
+    assert "Down: 1 Timeout" in text
     assert msg["Subject"].startswith("[StatRep] 1 of 2 websites down")
 
 
