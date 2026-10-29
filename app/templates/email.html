@@ -10,6 +10,16 @@
   'down': {'fg': '#c40d42', 'bg': '#fdeef3', 'line': '#f6bfd0'},
 } %}
 {% set labels = {'UP': 'Operational', 'SLOW': 'Slow', 'DOWN': 'Down'} %}
+{# Down reasons with counts, e.g. {"Forbidden": 2, "Server error": 1} #}
+{% set reason_counts = {} %}
+{% for r in down %}{% set _ = reason_counts.update({r.down_reason[0]: reason_counts.get(r.down_reason[0], 0) + 1}) %}{% endfor %}
+{% macro error_text(r) -%}
+{{ r.down_reason[1] if r.down_reason and r.down_reason[1] and r.error.startswith('HTTP ') else r.error }}
+{%- endmacro %}
+{% macro status_pill(r, t) %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border:1px solid {{ t.line }}">{{ labels[r.status] }}</span>
+            {% if r.down_reason %}<div style="color:#c40d42;font-size:11px;font-weight:700;margin-top:4px;white-space:nowrap">{{ r.down_reason[0] }}</div>{% endif %}
+{% endmacro %}
 {% set font = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" %}
 <!doctype html>
 <html lang="en">
@@ -35,7 +45,7 @@
           <div style="font-size:12px;color:#737373">{{ 'Website & API' if apis else 'Website' }} Status Report</div>
         </td>
         <td valign="middle" align="right" style="font-size:12px;color:#737373;line-height:1.5">
-          {{ run.started_at }}<br>{{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} check
+          {{ run.started_at }}<br>{{ {'scheduled': 'Scheduled check', 'resend': 'Latest results'}.get(run.trigger, 'Manual check') }}
         </td>
       </tr></table>
     </td></tr>
@@ -53,7 +63,10 @@
             {% else %}All {{ run.total }} {{ noun }} are operational{% endif %}
           </div>
           {% if down %}
-          <div style="font-size:13px;color:#525252;margin-top:6px">Down: {{ down | map(attribute='name') | join(', ') }}</div>
+          <div style="font-size:13px;color:#525252;margin-top:6px">
+            {% for label, n in reason_counts | dictsort(by='value', reverse=true) %}<b>{{ n }} {{ label }}</b>{{ ' · ' if not loop.last }}{% endfor %}
+          </div>
+          <div style="font-size:13px;color:#525252;margin-top:4px">Down: {% for r in down %}{{ r.name }} ({{ r.down_reason[0] }}){{ ', ' if not loop.last }}{% endfor %}</div>
           {% endif %}
         </td></tr>
       </table>
@@ -92,10 +105,10 @@
         <tr>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
             <a href="{{ r.url }}" style="color:#1a1a1a;font-weight:600;text-decoration:none">{{ r.name }}</a>
-            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ r.error }}</div>{% endif %}
+            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ error_text(r) }}</div>{% endif %}
           </td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
-            <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border:1px solid {{ t.line }}">{{ labels[r.status] }}</span>
+            {{ status_pill(r, t) }}
           </td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252">{{ r.code or '-' }}</td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ms ~ ' ms' if r.ms else '–' }}</td>
@@ -129,10 +142,10 @@
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
             <div style="color:#1a1a1a;font-weight:600">{{ r.name }}</div>
             <div style="color:#737373;font-size:11px;margin-top:2px"><b style="color:#7b1b67">{{ r.method }}</b> {{ r.url }}</div>
-            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ r.error }}</div>{% endif %}
+            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ error_text(r) }}</div>{% endif %}
           </td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
-            <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;color:{{ t.fg }};background:{{ t.bg }};border:1px solid {{ t.line }}">{{ labels[r.status] }}</span>
+            {{ status_pill(r, t) }}
           </td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252">{{ r.code or '-' }}</td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ms ~ ' ms' if r.ms else '–' }}</td>

@@ -54,6 +54,40 @@ _rdap_lock = threading.Lock()
 _rdap_slots = threading.BoundedSemaphore(4)  # rdap.org rate-limits bursts (40+ sites at once)
 
 
+# Why a target is DOWN: (short label, what it usually means). By HTTP code first, then by class.
+HTTP_REASONS = {
+    400: ("Bad request", "The server rejected the request as malformed."),
+    401: ("Login required", "The server asks for credentials before it answers."),
+    403: ("Forbidden", "The server is up but refused access, often a firewall, WAF or IP allow-list "
+                       "blocking automated checks."),
+    404: ("Not found", "The address no longer exists on the server; check the URL."),
+    405: ("Method not allowed", "The server does not accept this request method here."),
+    408: ("Request timeout", "The server gave up waiting for the request."),
+    410: ("Gone", "The page was removed permanently."),
+    429: ("Rate limited", "Too many requests: the server is throttling the checker."),
+    500: ("Server error", "The application crashed or failed while handling the request."),
+    501: ("Not implemented", "The server does not support this request."),
+    502: ("Bad gateway", "A proxy or load balancer got no valid answer from the application behind it."),
+    503: ("Service unavailable", "The service is overloaded or down for maintenance."),
+    504: ("Gateway timeout", "A proxy or load balancer timed out waiting for the application."),
+}
+HTTP_CLASS_REASONS = {
+    4: ("Client error", "The server refused the request (HTTP 4xx)."),
+    5: ("Server error", "The server failed to handle the request (HTTP 5xx)."),
+}
+# Matched against the start of Result.error for failures without an HTTP response
+ERROR_REASONS = [
+    ("Config error", "Config error", "Fix this entry in the config file."),
+    ("Private or internal", "Blocked address", "Quick check can only reach public addresses."),
+    ("More than", "Redirect loop", "The site keeps redirecting and never settles on a page."),
+    ("SSL certificate error", "SSL error", "The certificate is invalid, expired or does not match the address."),
+    ("Could not connect within", "Unreachable", "No answer at all: the server or network is down, or a firewall drops the connection."),
+    ("Timed out", "Timeout", "The server accepted the connection but did not answer in time."),
+    ("Could not connect", "No connection", "The name does not resolve, or the server refused the connection."),
+    ("Page is empty", "Empty page", "The server answered but sent a blank page."),
+]
+
+
 @dataclass
 class Result:
     url: str
@@ -94,6 +128,24 @@ class Result:
     # Security headers
     sec_grade: str | None = None
     sec_headers: list = field(default_factory=list)  # [(name, purpose, present)]
+
+    @property
+    def down_reason(self):
+        """(label, explanation) for a DOWN result, e.g. ("Forbidden", "The server is up but ..."); else None."""
+        if self.status != "DOWN":
+            return None
+        error = self.error or ""
+        for prefix, label, hint in ERROR_REASONS[:1]:  # config errors win over everything
+            if error.startswith(prefix):
+                return label, hint
+        if self.code and self.code >= 400 and not (self.kind == "api" and self.checks and self.checks[0][1]):
+            return HTTP_REASONS.get(self.code) or HTTP_CLASS_REASONS.get(self.code // 100, ("HTTP error", ""))
+        if self.code and self.kind == "api":
+            return "Unexpected response", "The API answered, but not with what apis.yml expects."
+        for prefix, label, hint in ERROR_REASONS[1:]:
+            if error.startswith(prefix):
+                return label, hint
+        return "Down", ""
 
     @property
     def expiring(self):

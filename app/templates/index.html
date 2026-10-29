@@ -8,7 +8,7 @@
   <link rel="preload" href="{{ url_for('static', filename='fonts/inter.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body data-check-url="{{ url_for('check_once') }}" data-status-url="{{ url_for('api_status') }}" data-running="{{ 'true' if running else 'false' }}">
+<body data-check-url="{{ url_for('check_once') }}" data-site-check-url="{{ url_for('check_site') }}" data-status-url="{{ url_for('api_status') }}" data-running="{{ 'true' if running else 'false' }}">
 {% from "_site.html" import site_row, pending_row, api_row, api_pending_row, icon with context %}
 {% set noun = 'services' if (apis or api_list) else 'websites' %}
 
@@ -59,7 +59,7 @@
         </h1>
         <p>
           {% if running %}Checking all {{ noun }} now. This page refreshes automatically.
-          {% elif run %}Last checked {{ run.started_at }} · {{ 'Scheduled' if run.trigger == 'scheduled' else 'Manual' }} run · {{ run.total }} checked in {{ run.seconds }}s{% if run.emailed %} · Report emailed{% endif %}
+          {% elif run %}Last checked {{ run.started_at }} · {{ 'Scheduled check' if run.trigger == 'scheduled' else 'Checked by hand' }} · {{ run.total }} checked in {{ run.seconds }}s · {{ 'Report emailed' if run.emailed else 'Not emailed' }}
           {% else %}Run a check now, or wait for the next scheduled check.{% endif %}
         </p>
       </div>
@@ -73,10 +73,24 @@
           </div>
         </details>
         {% endif %}
-        <form method="post" action="{{ url_for('run_now') }}" id="run-form">
-          <button class="btn btn-primary {{ 'is-loading' if running }}" type="submit" {{ 'disabled' if running }}>
-            {{ icon('loader' if running else 'refresh') }}<span>{{ 'Checking…' if running else 'Run check & send report' }}</span>
+        {% if run and not running %}
+        <form method="post" action="{{ url_for('email_report') }}" class="email-form">
+          <button class="btn btn-outline" type="submit" title="Email the results shown on this page, including websites you re-checked one by one, without checking again">
+            {{ icon('mail') }}<span>Email these results</span>
           </button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('run_now') }}" id="run-form" class="run-form">
+          {% if running %}
+          <button class="btn btn-primary is-loading" type="button" disabled>{{ icon('loader') }}<span>Checking…</span></button>
+          {% else %}
+          <button class="btn btn-outline" type="submit" name="email" value="0" title="Check every website and API now, without emailing. You can email the results afterwards.">
+            {{ icon('refresh') }}<span>Check all</span>
+          </button>
+          <button class="btn btn-primary" type="submit" name="email" value="1" title="Check every website and API now and email the report to all recipients">
+            {{ icon('mail') }}<span>Check all &amp; email</span>
+          </button>
+          {% endif %}
         </form>
       </div>
     </div>
@@ -88,32 +102,76 @@
       <div class="metric-cell"><span class="metric-label"><i class="dot dot-warn"></i>Expiring soon</span><span class="metric-value {{ 'c-down' if counts.EXPIRING }}">{{ counts.EXPIRING }}</span></div>
       <div class="metric-cell"><span class="metric-label">Avg. response</span><span class="metric-value">{{ avg_ms }}<small>ms</small></span></div>
     </div>
+    <div class="overview">
+      <div class="overview-head">
+        <span class="overview-title">Status map</span>
+        <span class="overview-hint">One square per {{ noun[:-1] }}, problems first. Click one to jump to it.</span>
+      </div>
+      <div class="tiles" id="tiles">
+        {% for r in results + apis %}
+        <a class="tile tile-{{ r.status|lower }}{{ ' tile-warn' if r.expiring }}" href="#" data-jump="{{ r.url }}"
+           title="{{ r.name }}: {{ {'UP': 'Operational', 'SLOW': 'Slow', 'DOWN': 'Down'}[r.status] }}{{ ' · ' ~ r.down_reason[0] if r.down_reason }}{{ ' · ' ~ r.ms ~ ' ms' if r.ms }}{{ ' · expiring soon' if r.expiring }}"><span class="sr-only">{{ r.name }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
     {% endif %}
   </section>
 
   {% if wait %}
-    <div class="alert alert-error" role="alert">{{ icon('clock') }}A check was run recently. Please wait {{ wait }} seconds before running another.</div>
+    <div class="alert alert-error" role="alert">{{ icon('clock') }}A check or email was started a moment ago. Please wait {{ wait }} seconds and try again.</div>
+  {% endif %}
+  {% if sent and note and note[0] == 'info' %}
+    <div class="alert alert-success" role="status">{{ icon('check') }}{{ note[1] }}</div>
   {% endif %}
   {% if note and note[0] == 'error' and not running %}
     <div class="alert alert-error" role="alert">{{ icon('x') }}{{ note[1] }}</div>
   {% endif %}
 
-  <section class="card">
+  <section class="card card-list">
     <div class="card-head">
       <div>
         <h2>Websites <span class="count">{{ results|length if run else sites|length }}</span></h2>
-        <p>Checked daily at {{ cfg.CHECK_TIMES | humanlist }} ({{ cfg.TZ }}) and emailed. Click a website for full details.</p>
+        <p>Checked daily at {{ cfg.CHECK_TIMES | humanlist }} ({{ cfg.TZ }}) and emailed. Click a website for full details, or to check just that one and email its report.</p>
       </div>
     </div>
-    <div class="rows">
+    <div class="list-head">
+      <div class="toolbar">
+        <label class="search">{{ icon('search') }}
+          <input id="site-search" type="search" placeholder="Search by name or address" aria-label="Search websites" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <div class="filters" role="group" aria-label="Show">
+          {% for key, label in [('all', 'All'), ('DOWN', 'Down'), ('SLOW', 'Slow'), ('UP', 'Operational'), ('expiring', 'Expiring')] %}
+          <button type="button" class="filter filter-{{ key|lower }}{{ ' is-active' if loop.first }}" data-filter="{{ key }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">
+            {% if not loop.first %}<i class="dot dot-{{ {'DOWN': 'down', 'SLOW': 'slow', 'UP': 'up', 'expiring': 'warn'}[key] }}"></i>{% endif %}{{ label }}<b data-count="{{ key }}">0</b>
+          </button>
+          {% endfor %}
+        </div>
+        <label class="sort">
+          <span>Sort</span>
+          <select id="site-sort" aria-label="Sort websites">
+            <option value="status">Problems first</option>
+            <option value="name">Name A–Z</option>
+            <option value="ms">Slowest first</option>
+            <option value="config">As in sites.yml</option>
+          </select>
+        </label>
+      </div>
       <div class="row row-head" aria-hidden="true">
         <span>Website</span><span>Status</span><span>Response</span><span>Updated</span><span>SSL</span><span>Domain</span><span>Security</span><span></span>
       </div>
+    </div>
+    <div id="site-error" class="alert alert-error alert-inset" role="alert" hidden></div>
+    <div class="rows" id="site-list">
       {% if run %}
-        {% for r in results %}{{ site_row(r) }}{% endfor %}
+        {% for r in results %}{{ site_row(r, actions=True) }}{% endfor %}
       {% else %}
         {% for s in sites %}{{ pending_row(s) }}{% endfor %}
       {% endif %}
+    </div>
+    <div id="site-empty" class="empty" hidden>
+      {{ icon('search') }}<p><strong>No websites match</strong><span>Try another search or filter.</span></p>
+      <button type="button" class="btn btn-outline btn-sm" id="site-reset">Show all</button>
     </div>
   </section>
 
@@ -160,6 +218,8 @@
     <span>Websites are listed in <code>config/sites.yml</code>, APIs in <code>config/apis.yml</code></span>
   </div>
 </footer>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

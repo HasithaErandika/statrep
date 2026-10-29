@@ -4,7 +4,7 @@ StatRep checks your websites and APIs several times a day and emails a status re
 everyone on your list. A web page shows the latest results and lets you run a check on demand.
 
 - **When:** every day at **06:00**, **07:45**, **16:30** and **20:00** (Asia/Colombo), plus whenever
-  you click **Run check & send report**.
+  you click **Check all & email**. Any single website can also be re-checked on its own (not emailed).
 - **What:** websites from `config/sites.yml` and APIs from `config/apis.yml`.
 - **Result per target:** **UP**, **SLOW** or **DOWN**, with response time, HTTP code, SSL and domain
   expiry, and the reason when something fails.
@@ -29,7 +29,7 @@ code zip, configuration, server firewall, login and HTTPS.
 ## How it works
 
 ```
- Schedule (06:00, 07:45, 16:30, 20:00)     "Run check & send report" button
+ Schedule (06:00, 07:45, 16:30, 20:00)     "Check all & email" button
                  └──────────────┬──────────────────┘
                          service.run_check            (one check at a time; a scheduled run
                                 │                      waits for a running one to finish)
@@ -120,9 +120,41 @@ has fewer than 14 days left (`SSL_WARN_DAYS`) or its domain fewer than 30 (`DOMA
   websites and one for APIs, sorted DOWN → SLOW → UP. Each address in `MAIL_TO` gets its own copy,
   so recipients don't see each other. If one address is refused, the others still get the report.
 - **Web page:** the same results; click any row for full details (timing breakdown, redirects,
-  SSL, domain, security headers or API checks).
+  SSL, domain, security headers or API checks). Built for long lists (50+ sites):
+  - a **status map** with one coloured square per site (problems first); click one to jump to it;
+  - **search** by name or address (press `/`), **filters** with counts (Down, Slow, Operational,
+    Expiring) and **sort** (problems first, name, slowest first, or the order in `sites.yml`);
+    the toolbar stays at the top while you scroll.
 - **Downloads:** CSV (every field, for Excel/Sheets) and a standalone HTML report.
 
+- **Down reasons:** every DOWN result says why, on the page, in the email (with a count per
+  reason) and in the CSV: by HTTP code (*Forbidden · 403*, *Login required · 401*, *Not found · 404*,
+  *Rate limited · 429*, *Server error · 500*, *Bad gateway · 502*, *Service unavailable · 503*,
+  *Gateway timeout · 504*, other 4xx/5xx as *Client error* / *Server error*), or without a response:
+  *Timeout*, *Unreachable*, *No connection*, *SSL error*, *Redirect loop*, *Empty page*,
+  *Config error*; APIs that answer but fail their checks show *Unexpected response*. Hover a
+  reason for what it usually means. A 403 often means the site is up but blocks automated checks.
+
+### Buttons
+
+| Button | What it does |
+|---|---|
+| **Check all** | Checks every website and API now; nothing is emailed |
+| **Check all & email** | Checks everything and emails the report to all of `MAIL_TO` |
+| **Email these results** | Emails the results on the page now (including single re-checks), without checking again |
+| ↻ / **Check this website again** | Checks one website only; nothing is emailed |
+
+Scheduled checks always email the report.
+
+### Checking one website on its own
+
+Open a website's row and click **Check this website again** (or the ↻ button on a row that hasn't
+been checked yet). Only that site is checked, in a few seconds, and its row is updated in place.
+**Nothing is emailed.** The same site can be re-checked every 20 seconds.
+
+When you're done re-checking, click **Email results** at the top: it emails the results now on the
+page, including your re-checks, to everyone in `MAIL_TO`, without checking everything again. It
+shares the `RUN_COOLDOWN` limit with **Check all & email**.
 ### Quick check
 
 The **Quick check** box on the page checks any URLs once, as websites. Results are not saved or
@@ -227,7 +259,6 @@ see `docker compose logs`.
 - The container runs as a non-root user with a read-only filesystem, no extra privileges, and memory
   and process limits. The base image and all packages are pinned; CI runs the tests and
   `pip-audit`, and Dependabot proposes updates weekly.
-- See [`AUDIT.md`](AUDIT.md) for the full code audit and open recommendations.
 
 ## Project structure
 
@@ -250,7 +281,6 @@ statrep/
 ├── .env                   # credentials + settings (not committed)
 ├── .env.example
 ├── SETUP.md               # installation and start options
-├── AUDIT.md               # code audit
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
