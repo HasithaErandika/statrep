@@ -72,6 +72,15 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "smtp-relay.brevo.com")
 SMTP_PORT = _int("SMTP_PORT", 587, 1, 65535)
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
+if bool(SMTP_USER) != bool(SMTP_PASS):
+    raise ConfigError("set both SMTP_USER and SMTP_PASS, or neither (IP-whitelisted relay)")
+# STARTTLS on ports other than 465 (465 always uses SSL); turn off only for internal relays without TLS
+SMTP_TLS = os.environ.get("SMTP_TLS", "on").strip().lower() or "on"
+if SMTP_TLS not in ("on", "off"):
+    raise ConfigError(f"SMTP_TLS={SMTP_TLS!r} must be on or off")
+SMTP_TLS = SMTP_TLS == "on"
+if SMTP_USER and not SMTP_TLS and SMTP_PORT != 465:
+    log.warning("SMTP_TLS=off with SMTP_USER set: the SMTP password is sent unencrypted")
 MAIL_FROM = os.environ.get("MAIL_FROM", "") or SMTP_USER
 
 
@@ -105,7 +114,7 @@ if bool(AUTH_USER) != bool(AUTH_PASSWORD):
 # Number of reverse proxies in front of the app whose X-Forwarded-For can be trusted (0 = none)
 TRUSTED_PROXIES = _int("TRUSTED_PROXIES", 0, 0, 5)
 
-if not (SMTP_USER and SMTP_PASS and MAIL_TO):
+if not (SMTP_HOST and MAIL_FROM and MAIL_TO):
     EMAIL_PROBLEM = "SMTP settings are missing in .env"
 elif not EMAIL_RE.match(MAIL_FROM):
     EMAIL_PROBLEM = f"MAIL_FROM {MAIL_FROM!r} is not a valid email address"

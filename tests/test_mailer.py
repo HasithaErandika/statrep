@@ -88,3 +88,23 @@ def test_message_has_text_and_html_parts_and_logo():
 
 def test_mask():
     assert mailer.mask("john@example.com") == "j***@example.com"
+
+
+def test_ip_whitelisted_relay_skips_login_and_tls(monkeypatch):
+    calls = []
+    monkeypatch.setattr(FakeSMTP, "login", lambda self, u, p: calls.append("login"))
+    monkeypatch.setattr(FakeSMTP, "starttls", lambda self, context=None: calls.append("starttls"))
+    monkeypatch.setattr(config, "SMTP_USER", "")
+    monkeypatch.setattr(config, "SMTP_PASS", "")
+    monkeypatch.setattr(config, "SMTP_TLS", False)
+    assert mailer.send_report(RUN, RESULTS, []) == []
+    assert calls == [] and FakeSMTP.delivered == config.MAIL_TO
+
+
+def test_login_used_when_credentials_set(monkeypatch):
+    calls = []
+    monkeypatch.setattr(FakeSMTP, "login", lambda self, u, p: calls.append((u, p)))
+    monkeypatch.setattr(config, "SMTP_USER", "user")
+    monkeypatch.setattr(config, "SMTP_PASS", "pass")
+    mailer.send_report(RUN, RESULTS, [])
+    assert calls == [("user", "pass")]
