@@ -1,4 +1,4 @@
-"""Runs a full check: check sites and APIs, email the report, keep the latest in memory."""
+"""Runs a full check: check sites, APIs and IP addresses, email the report, keep the latest in memory."""
 import logging
 import smtplib
 import threading
@@ -15,7 +15,7 @@ SCHEDULED_WAIT = 15 * 60  # a scheduled run waits this long for a running check 
 SINGLE_COOLDOWN = 20      # seconds before the same website can be checked on its own again
 
 # Latest report, shown in the UI (no database: resets when the app restarts)
-latest = {"run": None, "results": [], "apis": [], "note": None, "running": False}
+latest = {"run": None, "results": [], "apis": [], "ips": [], "note": None, "running": False}
 _last_manual = None  # time of the last manual run/email; None = never
 _last_single = {}  # site url -> time of its last single-site check (per-site cooldown)
 _single_slots = threading.BoundedSemaphore(3)  # single-site checks running at the same time
@@ -59,13 +59,13 @@ def _mail_error(e):
     return "the SMTP server returned an error (see logs)"
 
 
-def _email(run, results, apis):
+def _email(run, results, apis, ips):
     """Email the report and return the note shown on the page: (level, message)."""
     if not config.EMAIL_CONFIGURED:
         return "error", f"Email not sent: {config.EMAIL_PROBLEM}."
     total = len(config.MAIL_TO)
     try:
-        failed = mailer.send_report(run, results, apis)
+        failed = mailer.send_report(run, results, apis, ips)
     except Exception as e:  # noqa: BLE001 - show any mail failure in the UI
         log.exception("Email failed")
         return "error", f"Email failed: {_mail_error(e)}."
@@ -114,18 +114,18 @@ def email_latest():
         if wait > 0:
             return None, wait
         _last_manual = time.monotonic()
-    results, apis = latest["results"], latest["apis"]
+    results, apis, ips = latest["results"], latest["apis"], latest["ips"]
     run = {**latest["run"], "trigger": "resend", "emailed": False,
            "started_at": datetime.now(ZoneInfo(config.TZ)).strftime("%Y-%m-%d %H:%M"),
-           "up": sum(r.status != "DOWN" for r in results + apis)}
-    note = _email(run, results, apis)
+           "up": sum(r.status != "DOWN" for r in results + apis + ips)}
+    note = _email(run, results, apis, ips)
     latest["run"]["emailed"] = latest["run"]["emailed"] or run["emailed"]
     latest["note"] = note
     return note, 0
 
 
 def run_check(trigger="manual", email=True):
-    """Check every site and API and email the report (always for scheduled runs; manual runs
+    """Check every site, API and IP address and email the report (always for scheduled runs; manual runs
     can skip the email). Only one check runs at a time.
 
     A manual run is dropped if a check is already running; a scheduled run waits for it to
@@ -142,20 +142,20 @@ def run_check(trigger="manual", email=True):
     try:
         started = datetime.now(ZoneInfo(config.TZ)).strftime("%Y-%m-%d %H:%M")
         t0 = time.monotonic()
-        results, apis = checker.check_everything(config.load_sites(), config.load_apis())
+        results, apis, ips = checker.check_everything(config.load_sites(), config.load_apis(), config.load_ips())
         run = {
             "started_at": started,
             "trigger": trigger,
-            "total": len(results) + len(apis),
-            "up": sum(r.status != "DOWN" for r in results + apis),
+            "total": len(results) + len(apis) + len(ips),
+            "up": sum(r.status != "DOWN" for r in results + apis + ips),
             "emailed": False,
             "seconds": round(time.monotonic() - t0, 1),
         }
-        for r in results + apis:
+        for r in results + apis + ips:
             log.info("%-4s %s %s", r.status, r.name if r.kind == "api" else r.url, r.error or f"{r.ms}ms")
 
-        note = _email(run, results, apis) if email or trigger == "scheduled" else ("info", "Not emailed.")
-        latest.update(run=run, results=results, apis=apis, note=note)
+        note = _email(run, results, apis, ips) if email or trigger == "scheduled" else ("info", "Not emailed.")
+        latest.update(run=run, results=results, apis=apis, ips=ips, note=note)
         log.info("%s check of %d targets finished in %.1fs. %s", trigger, run["total"], run["seconds"], note[1])
     finally:
         latest["running"] = False

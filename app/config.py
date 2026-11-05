@@ -1,4 +1,5 @@
 """All settings come from environment variables (see .env.example)."""
+import ipaddress
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SITES_FILE = os.environ.get("SITES_FILE", str(BASE_DIR / "config" / "sites.yml"))
 LEGACY_SITES_FILE = BASE_DIR / "config" / "sites.txt"
 APIS_FILE = os.environ.get("APIS_FILE", str(BASE_DIR / "config" / "apis.yml"))
+IPS_FILE = os.environ.get("IPS_FILE", str(BASE_DIR / "config" / "ip.yml"))
 
 
 class ConfigError(SystemExit):
@@ -62,9 +64,10 @@ TIMEOUT = _int("CHECK_TIMEOUT", 20, 1, 120)       # seconds per request
 RETRIES = _int("CHECK_RETRIES", 1, 0, 5)          # extra attempts before DOWN
 SLOW_MS = _int("SLOW_MS", 5000, 1)                # slower than this = SLOW
 API_SLOW_MS = _int("API_SLOW_MS", 2000, 1)        # default SLOW limit for APIs
+PING_SLOW_MS = _int("PING_SLOW_MS", 500, 1)       # average ping slower than this = SLOW
 SSL_WARN_DAYS = _int("SSL_WARN_DAYS", 14)
 DOMAIN_WARN_DAYS = _int("DOMAIN_WARN_DAYS", 30)
-CONCURRENCY = _int("CHECK_CONCURRENCY", 40, 1, 200)  # sites/APIs checked at the same time (details)
+CONCURRENCY = _int("CHECK_CONCURRENCY", 40, 1, 200)  # targets checked at the same time (details)
 TIMING_CONCURRENCY = _int("TIMING_CONCURRENCY", 10, 1, 200)  # timed requests at the same time
 
 # Email
@@ -248,3 +251,31 @@ def load_apis():
     if error:
         return [{"name": path.name, "display_url": "", "config_error": error}]
     return [_api_entry(i, raw) for i, raw in enumerate(data, 1)]
+
+
+def _ip_entry(raw):
+    """Normalise one ip.yml entry: an IP address, or a mapping with ip and an optional name."""
+    if not isinstance(raw, dict):
+        raw = {"ip": raw}
+    ip = str(raw.get("ip") or "").strip()
+    entry = {"ip": ip, "name": str(raw.get("name") or ip or "IP address")}
+    try:
+        # Also keeps anything but a plain address away from the ping command line
+        entry["ip"] = str(ipaddress.ip_address(ip))
+    except ValueError:
+        return {**entry, "config_error": "Config error: ip must be an IP address, e.g. 10.0.0.1"}
+    unknown = set(raw) - {"ip", "name"}
+    if unknown:
+        return {**entry, "config_error": f"Config error: unknown option: {', '.join(sorted(map(str, unknown)))}"}
+    return entry
+
+
+def load_ips():
+    """Read config/ip.yml: a list of IP addresses to ping, or {ip, name} entries."""
+    path = Path(IPS_FILE)
+    if not path.exists():
+        return []
+    data, error = _read_yaml_list(path)
+    if error:
+        return [{"ip": "", "name": path.name, "config_error": error}]
+    return [_ip_entry(raw) for raw in data]

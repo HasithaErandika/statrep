@@ -137,11 +137,11 @@ def test_check_everything_two_phases_at_scale(monkeypatch):
     sites = [{"url": f"https://s{i}.example"} for i in range(40)]
     apis = [{"name": f"a{i}", "url": f"https://a{i}.example", "display_url": ""} for i in range(5)]
     start = time.monotonic()
-    results, api_results = checker.check_everything(sites, apis)
+    results, api_results, ip_results = checker.check_everything(sites, apis, [])
     elapsed = time.monotonic() - start
 
     assert [r.url for r in results] == [s["url"] for s in sites]          # config order kept
-    assert [r.kind for r in api_results] == ["api"] * 5
+    assert [r.kind for r in api_results] == ["api"] * 5 and ip_results == []
     assert peak == {"measure": 10, "finish": 40}
     assert log.index("finish") == 45                                       # all timing done first
     assert elapsed < 1.5, f"took {elapsed:.2f}s; checks are not running concurrently"
@@ -179,3 +179,134 @@ def test_api_expected_error_code_is_not_reported_as_http_error():
     # An API expected to return 404 that fails on its JSON check: the 404 itself is fine
     r = checker.Result("https://a.com", "a", "DOWN", 404, error="x", kind="api", checks=[("HTTP status is 404", True, None)])
     assert r.down_reason[0] == "Unexpected response"
+
+
+LINUX_OK = """PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.
+64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=10.5 ms
+64 bytes from 10.0.0.1: icmp_seq=2 ttl=64 time=20.5 ms
+64 bytes from 10.0.0.1: icmp_seq=3 ttl=64 time=30.5 ms
+
+--- 10.0.0.1 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 10.500/20.500/30.500/8.165 ms
+"""
+LINUX_LOSS = """64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=4.00 ms
+3 packets transmitted, 1 received, 66.6667% packet loss, time 2003ms
+rtt min/avg/max/mdev = 4.000/4.000/4.000/0.000 ms
+"""
+LINUX_NONE = "3 packets transmitted, 0 received, 100% packet loss, time 2050ms\n"
+LINUX_LOCAL = """64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.025 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.040 ms
+64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=0.052 ms
+rtt min/avg/max/mdev = 0.025/0.039/0.052/0.011 ms
+"""
+WINDOWS_OK = """Pinging 10.0.0.1 with 32 bytes of data:
+Reply from 10.0.0.1: bytes=32 time<1ms TTL=64
+Reply from 10.0.0.1: bytes=32 time=2ms TTL=64
+Reply from 10.0.0.1: bytes=32 time=3ms TTL=64
+
+Ping statistics for 10.0.0.1:
+    Packets: Sent = 3, Received = 3, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 0ms, Maximum = 3ms, Average = 2ms
+"""
+WINDOWS_UNREACHABLE = """Reply from 10.0.0.9: Destination host unreachable.
+Reply from 10.0.0.9: Destination host unreachable.
+Reply from 10.0.0.9: Destination host unreachable.
+    Packets: Sent = 3, Received = 3, Lost = 0 (0% loss),
+"""
+
+
+def fake_ping(monkeypatch, stdout, returncode=0, stderr=""):
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
+    monkeypatch.setattr(checker.subprocess, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize("stdout, returncode, status, ms, received, low, high", [
+    (LINUX_OK, 0, "UP", 20, 3, 10.5, 30.5),
+    (LINUX_LOSS, 0, "SLOW", 4, 1, 4.0, 4.0),            # packet loss counts as degraded
+    (LINUX_LOCAL, 0, "UP", 1, 3, 0.0, 0.1),             # below 1 ms must not read as "no response"
+    (WINDOWS_OK, 0, "UP", 2, 3, 1.0, 3.0),
+])
+def test_ping_replies(monkeypatch, stdout, returncode, status, ms, received, low, high):
+    fake_ping(monkeypatch, stdout, returncode)
+    r = checker._ping({"ip": "10.0.0.1", "name": "Box"})
+    assert (r.status, r.ms, r.error, r.kind) == (status, ms, None, "ip")
+    assert (r.ping["received"], r.ping["min"], r.ping["max"]) == (received, low, high)
+    assert r.down_reason is None
+
+
+@pytest.mark.parametrize("stdout, returncode", [
+    (LINUX_NONE, 1),
+    (WINDOWS_UNREACHABLE, 0),                           # Windows exits with 0 here
+])
+def test_ping_without_replies_is_down(monkeypatch, stdout, returncode):
+    fake_ping(monkeypatch, stdout, returncode)
+    r = checker._ping({"ip": "10.0.0.9", "name": "Box"})
+    assert (r.status, r.ms, r.ping["loss"]) == ("DOWN", None, 100)
+    assert r.down_reason[0] == "No reply"
+
+
+def test_ping_slow_limit(monkeypatch):
+    fake_ping(monkeypatch, LINUX_OK)
+    monkeypatch.setattr(config, "PING_SLOW_MS", 15)
+    assert checker._ping({"ip": "10.0.0.1", "name": "Box"}).status == "SLOW"
+
+
+@pytest.mark.parametrize("problem", [FileNotFoundError("ping"), checker.subprocess.TimeoutExpired("ping", 1)])
+def test_ping_that_cannot_run_is_not_reported_as_no_reply(monkeypatch, problem):
+    def run(cmd, **kwargs):
+        raise problem
+    monkeypatch.setattr(checker.subprocess, "run", run)
+    r = checker._ping({"ip": "10.0.0.1", "name": "Box"})
+    assert r.status == "DOWN" and r.down_reason[0] == "Ping failed" and r.ping == {}
+
+
+def test_ping_refused_by_the_system(monkeypatch):
+    fake_ping(monkeypatch, "", 2, "ping: socktype: SOCK_RAW: Operation not permitted")
+    assert checker._ping({"ip": "10.0.0.1", "name": "Box"}).down_reason[0] == "Ping failed"
+
+
+@pytest.mark.parametrize("os_name, platform, expected", [
+    ("posix", "linux", ["ping", "-n", "-c", "3", "-W", "2", "10.0.0.1"]),
+    ("posix", "darwin", ["ping", "-n", "-c", "3", "-W", "2000", "10.0.0.1"]),
+    ("nt", "win32", ["ping", "-n", "3", "-w", "2000", "10.0.0.1"]),
+])
+def test_ping_command_per_system(monkeypatch, os_name, platform, expected):
+    monkeypatch.setattr(checker.os, "name", os_name)
+    monkeypatch.setattr(checker.sys, "platform", platform)
+    assert checker._ping_command("10.0.0.1") == expected
+
+
+def test_ping_check_retries_only_when_down(monkeypatch):
+    monkeypatch.setattr(config, "RETRIES", 2)
+    monkeypatch.setattr(checker.time, "sleep", lambda s: None)
+    calls = fake_ping(monkeypatch, LINUX_NONE, 1)
+    check = checker.PingCheck({"ip": "10.0.0.9", "name": "Box"})
+    check.measure()
+    assert len(calls) == 3 and check.finish().status == "DOWN"
+    calls = fake_ping(monkeypatch, LINUX_OK)
+    check.measure()
+    assert len(calls) == 1 and check.finish().status == "UP"
+
+
+def test_ip_config_error_is_reported_not_pinged(monkeypatch):
+    calls = fake_ping(monkeypatch, LINUX_OK)
+    check = checker.PingCheck({"ip": "nope", "name": "bad", "config_error": "Config error: z"})
+    check.measure()
+    r = check.finish()
+    assert (r.status, r.kind, r.down_reason[0]) == ("DOWN", "ip", "Config error") and not calls
+
+
+def test_check_everything_splits_sites_apis_and_ips(monkeypatch):
+    fake_ping(monkeypatch, LINUX_OK)
+    sites, apis, ips = checker.check_everything(
+        [{"url": "", "name": "s", "config_error": "Config error: x"}],
+        [{"name": "a", "display_url": "", "config_error": "Config error: y"}],
+        [{"ip": "10.0.0.1", "name": "Box"}])
+    assert [[r.kind for r in group] for group in (sites, apis, ips)] == [["site"], ["api"], ["ip"]]

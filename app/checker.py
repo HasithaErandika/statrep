@@ -1,10 +1,14 @@
-"""Website and API checks: availability, timing, redirects, SSL, domain expiry, security headers,
-page info, and for APIs the expected status code / JSON fields / text."""
+"""Website, API and IP checks: availability, timing, redirects, SSL, domain expiry, security headers,
+page info, for APIs the expected status code / JSON fields / text, and for IP addresses a ping."""
 import ipaddress
 import json
+import logging
+import os
 import re
 import socket
 import ssl
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,11 +27,17 @@ from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 from . import config
 
+log = logging.getLogger("statrep")
 HEADERS = {"User-Agent": "Mozilla/5.0 (StatRep uptime checker)"}
 MAX_PAGE_BYTES = 2_000_000      # stop downloading pages/sitemaps beyond this
 MAX_REDIRECTS = 10
 CONNECT_TIMEOUT = 10            # a server that can't even accept a connection in 10 s is down
 BLOCKED_ERROR = "Private or internal addresses can't be checked"
+PING_COUNT = 3                  # packets per ping
+PING_WAIT = 2                   # seconds to wait for a reply
+# One per reply: "time=1.23 ms", Windows "time=1ms" / "time<1ms", in any language. Not the summary
+# lines ("Average = 1ms", "rtt min/avg/max/mdev = ..."), and not "unreachable" messages.
+PING_TIME_RE = re.compile(r"[=<](\d+(?:\.\d+)?) ?ms\b")
 TAG_RE = re.compile(r"<(meta|link)\b[^>]*>", re.I)
 ATTR_RE = re.compile(r"([\w:-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
@@ -85,6 +95,9 @@ ERROR_REASONS = [
     ("Timed out", "Timeout", "The server accepted the connection but did not answer in time."),
     ("Could not connect", "No connection", "The name does not resolve, or the server refused the connection."),
     ("Page is empty", "Empty page", "The server answered but sent a blank page."),
+    ("No reply", "No reply", "The address did not answer: it is down, not reachable from this server, "
+                             "or a firewall blocks ping."),
+    ("Ping could not run", "Ping failed", "The ping command failed on this server, so the address was not tested."),
 ]
 
 
@@ -96,12 +109,14 @@ class Result:
     code: int | None = None
     ms: int | None = None
     error: str | None = None
-    kind: str = "site"                 # site | api
+    kind: str = "site"                 # site | api | ip
     # API
     method: str | None = None
     content_type: str | None = None
     size: int | None = None            # response body bytes
     checks: list = field(default_factory=list)  # [(label, passed, detail)]
+    # IP address: sent, received, loss (%), min and max (ms); ms is the average
+    ping: dict = field(default_factory=dict)
     # Page
     title: str | None = None
     description: str | None = None
@@ -721,6 +736,66 @@ def check_api(api):
     return check.finish()
 
 
+# --- IP addresses (config/ip.yml) ---------------------------------------------------------
+
+def _ping_command(ip):
+    if os.name == "nt":
+        return ["ping", "-n", str(PING_COUNT), "-w", str(PING_WAIT * 1000), ip]
+    wait = PING_WAIT * 1000 if sys.platform == "darwin" else PING_WAIT  # macOS: milliseconds
+    return ["ping", "-n", "-c", str(PING_COUNT), "-W", str(wait), ip]
+
+
+def _ping(entry):
+    """Ping an address. Replies are counted from the output, not the exit code: Windows exits
+    with 0 when a router answers "Destination host unreachable"."""
+    ip = entry["ip"]
+    result = Result(ip, entry["name"], "DOWN", kind="ip")
+    try:
+        p = subprocess.run(_ping_command(ip), capture_output=True, text=True, errors="replace",
+                           timeout=PING_COUNT * (PING_WAIT + 1) + 5, env={**os.environ, "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log.warning("ping %s failed: %s", ip, e)
+        result.error = "Ping could not run"
+        return result
+    times = [float(t) for t in PING_TIME_RE.findall(p.stdout)][:PING_COUNT]
+    if not times and p.returncode > 1:  # 1 = no reply; above that ping itself failed (Linux)
+        log.warning("ping %s failed: %s", ip, p.stderr.strip())
+        result.error = "Ping could not run"
+        return result
+
+    result.ping = {"sent": PING_COUNT, "received": len(times), "loss": round(100 - len(times) * 100 / PING_COUNT)}
+    if not times:
+        result.error = "No reply to ping"
+        return result
+    result.ping.update(min=round(min(times), 1), max=round(max(times), 1))
+    result.ms = max(1, round(sum(times) / len(times)))  # at least 1: 0 would read as "no response"
+    result.status = "SLOW" if result.ms > config.PING_SLOW_MS or len(times) < PING_COUNT else "UP"
+    return result
+
+
+class PingCheck:
+    """Pings one address from config/ip.yml; same two phases as SiteCheck, with no details phase."""
+
+    def __init__(self, entry):
+        self.entry = entry
+        self.result = None
+
+    def measure(self):
+        entry = self.entry
+        if entry.get("config_error"):
+            self.result = Result(entry["ip"], entry["name"], "DOWN", kind="ip", error=entry["config_error"])
+            return
+        self.result = _ping(entry)
+        for _ in range(config.RETRIES):
+            if self.result.status != "DOWN":
+                break
+            time.sleep(3)
+            self.result = _ping(entry)
+
+    def finish(self):
+        return self.result
+
+
 def _run(checks):
     """Run checks in two phases and return their results in order.
 
@@ -740,7 +815,9 @@ def _run(checks):
         return list(pool.map(lambda c: c.finish(), checks))
 
 
-def check_everything(sites, apis):
-    """Check all sites and APIs together. Returns (site results, API results) in config order."""
-    results = _run([SiteCheck(s) for s in sites] + [ApiCheck(a) for a in apis])
-    return results[:len(sites)], results[len(sites):]
+def check_everything(sites, apis, ips):
+    """Check all sites, APIs and IP addresses together.
+    Returns (site results, API results, IP results) in config order."""
+    results = _run([SiteCheck(s) for s in sites] + [ApiCheck(a) for a in apis] + [PingCheck(i) for i in ips])
+    first_ip = len(sites) + len(apis)
+    return results[:len(sites)], results[len(sites):first_ip], results[first_ip:]

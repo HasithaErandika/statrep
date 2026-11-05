@@ -1,0 +1,23 @@
+# IP addresses to ping on every run (as well as the websites and APIs).
+# After editing: docker compose restart
+#
+# Each entry is either just an IP address, or an ip with an optional display name:
+#
+#   - 10.20.30.40
+#   - ip: 172.20.16.11
+#     name: Core switch
+#
+# Only IP addresses work here, not names or URLs: websites go in sites.yml, APIs in apis.yml.
+#
+# Each address gets 3 pings:
+#   Operational  all answered
+#   Slow         some lost, or the average is above PING_SLOW_MS in .env (500)
+#   Down         none answered
+#
+# A private address (10.x, 172.16-31.x, 192.168.x) only answers if the machine running StatRep
+# has a route to it, for example over the VPN or office network.
+#
+# Add your addresses below (remove the # to enable):
+#
+# - ip: 10.20.30.40
+#   name: Example server

@@ -10,10 +10,10 @@ from app import checker, config, service
 def no_real_checks(monkeypatch):
     calls = []
 
-    def fake_check(sites, apis):
+    def fake_check(sites, apis, ips):
         calls.append(time.monotonic())
         time.sleep(0.3)
-        return [checker.Result("https://a.com", "a.com", "UP", 200, 10)], []
+        return [checker.Result("https://a.com", "a.com", "UP", 200, 10)], [], []
     monkeypatch.setattr(checker, "check_everything", fake_check)
     monkeypatch.setattr(config, "EMAIL_CONFIGURED", False)
     monkeypatch.setattr(config, "EMAIL_PROBLEM", "SMTP settings are missing in .env")
@@ -71,7 +71,7 @@ def test_single_check_updates_latest_without_email(monkeypatch):
 
 def test_email_latest_sends_current_results(monkeypatch):
     sent = []
-    monkeypatch.setattr(service, "_email", lambda run, results, apis: sent.append((run, results)) or ("info", "ok"))
+    monkeypatch.setattr(service, "_email", lambda run, results, apis, ips: sent.append((run, results)) or ("info", "ok"))
     monkeypatch.setitem(service.latest, "run", None)
     assert service.email_latest()[0][0] == "error" and not sent               # no results yet
     service.run_check("manual")
