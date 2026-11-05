@@ -161,17 +161,21 @@
     });
   }
 
-  // ---------- Check one website again (not emailed) ----------
+  // ---------- Check one website or IP address again (not emailed) ----------
   var siteErr = document.getElementById('site-error');
+  var ipErr = document.getElementById('ip-error');
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-site-check]');
+    var btn = e.target.closest('[data-site-check], [data-ip-check]');
     if (!btn) return;
     e.preventDefault();
+    var isIp = btn.dataset.ipCheck !== undefined;
+    var errBox = isIp ? ipErr : siteErr;
     var row = btn.closest('.site');
     var label = btn.querySelector('span').textContent;
-    siteErr.hidden = true;
+    errBox.hidden = true;
     setBusy(btn, true, '#i-refresh', label);
-    postJSON(document.body.dataset.siteCheckUrl, {url: btn.dataset.siteCheck})
+    postJSON(isIp ? document.body.dataset.ipCheckUrl : document.body.dataset.siteCheckUrl,
+             isIp ? {ip: btn.dataset.ipCheck} : {url: btn.dataset.siteCheck})
       .then(function (d) {
         var tpl = document.createElement('template');
         tpl.innerHTML = d.html.trim();
@@ -193,7 +197,7 @@
               status.toLowerCase());
       })
       .catch(function (err) {
-        showError(siteErr, err.message);
+        showError(errBox, err.message);
         setBusy(btn, false, '#i-refresh', label);
       });
   });

@@ -12,13 +12,13 @@ log = logging.getLogger("statrep")
 _lock = threading.Lock()
 _cooldown_lock = threading.Lock()
 SCHEDULED_WAIT = 15 * 60  # a scheduled run waits this long for a running check to finish
-SINGLE_COOLDOWN = 20      # seconds before the same website can be checked on its own again
+SINGLE_COOLDOWN = 20      # seconds before the same website or IP address can be checked on its own again
 
 # Latest report, shown in the UI (no database: resets when the app restarts)
 latest = {"run": None, "results": [], "apis": [], "ips": [], "note": None, "running": False}
 _last_manual = None  # time of the last manual run/email; None = never
-_last_single = {}  # site url -> time of its last single-site check (per-site cooldown)
-_single_slots = threading.BoundedSemaphore(3)  # single-site checks running at the same time
+_last_single = {}  # site url or IP address -> time of its last single check (per-target cooldown)
+_single_slots = threading.BoundedSemaphore(3)  # single checks running at the same time
 
 
 def _cooldown_left(last, cooldown):
@@ -81,28 +81,42 @@ def find_site(url):
     return next((s for s in config.load_sites() if s["url"] == url and not s.get("config_error")), None)
 
 
-def check_single(site):
-    """Check one website from sites.yml again, without emailing a report.
+def find_ip(ip):
+    """The ip.yml entry with this address, or None: single checks only accept configured addresses."""
+    return next((i for i in config.load_ips() if i["ip"] == ip and not i.get("config_error")), None)
 
-    Runs in the request (one site takes seconds). Returns (result, wait): wait is the seconds
-    left if this site was checked too recently, and then result is None.
+
+def _check_one(key, check, group):
+    """Run one target's check, without emailing a report.
+
+    Runs in the request (one target takes seconds). Returns (result, wait): wait is the seconds
+    left if this target was checked too recently, and then result is None.
     """
-    url = site["url"]
     with _cooldown_lock:
-        wait = _cooldown_left(_last_single.get(url), SINGLE_COOLDOWN)
+        wait = _cooldown_left(_last_single.get(key), SINGLE_COOLDOWN)
         if wait > 0:
             return None, wait
-        _last_single[url] = time.monotonic()
+        _last_single[key] = time.monotonic()
     with _single_slots:
-        result = checker.check_site(site)
-    log.info("%-4s %s %s (single check)", result.status, url, result.error or f"{result.ms}ms")
-    # Show the fresh result in the main list too, if the last full run included this site
-    latest["results"] = [result if r.url == url else r for r in latest["results"]]
+        result = check()
+    log.info("%-4s %s %s (single check)", result.status, key, result.error or f"{result.ms}ms")
+    # Show the fresh result in the main list too, if the last full run included this target
+    latest[group] = [result if r.url == key else r for r in latest[group]]
     return result, 0
 
 
+def check_single(site):
+    """Check one website from sites.yml again; see _check_one."""
+    return _check_one(site["url"], lambda: checker.check_site(site), "results")
+
+
+def check_single_ip(entry):
+    """Ping one address from ip.yml again; see _check_one."""
+    return _check_one(entry["ip"], lambda: checker.check_ip(entry), "ips")
+
+
 def email_latest():
-    """Email the results on the page now, including websites re-checked one by one.
+    """Email the results on the page now, including websites and IP addresses re-checked one by one.
 
     Returns (note, wait): wait is the seconds left before another manual email/run is allowed.
     """

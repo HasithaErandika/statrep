@@ -69,6 +69,24 @@ def test_single_check_updates_latest_without_email(monkeypatch):
     assert service.check_single(site)[1] > 0                        # per-site cooldown
 
 
+def test_single_ip_check_updates_latest_without_email(monkeypatch):
+    entry = {"ip": "10.0.0.1", "name": "Switch"}
+    other = checker.Result("10.0.0.2", "Other", "UP", ms=1, kind="ip")
+    monkeypatch.setattr(config, "load_ips", lambda: [entry, {"ip": "bad", "name": "x", "config_error": "Config error: y"}])
+    monkeypatch.setattr(service, "_last_single", {})
+    monkeypatch.setattr(service, "latest", {**service.latest, "ips": [
+        checker.Result("10.0.0.1", "Switch", "DOWN", kind="ip", error="No reply to ping"), other]})
+    monkeypatch.setattr(checker, "check_ip", lambda e: checker.Result(e["ip"], e["name"], "UP", ms=3, kind="ip"))
+    sent = []
+    monkeypatch.setattr(service, "_email", lambda *a: sent.append(a) or ("info", "ok"))
+    assert service.find_ip("10.0.0.1") == entry
+    assert service.find_ip("10.0.0.9") is None and service.find_ip("bad") is None
+    result, wait = service.check_single_ip(entry)
+    assert result.status == "UP" and wait == 0 and not sent
+    assert service.latest["ips"] == [result, other]                 # only this address changed
+    assert service.check_single_ip(entry)[1] > 0                    # per-address cooldown
+
+
 def test_email_latest_sends_current_results(monkeypatch):
     sent = []
     monkeypatch.setattr(service, "_email", lambda run, results, apis, ips: sent.append((run, results)) or ("info", "ok"))

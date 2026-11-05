@@ -205,6 +205,7 @@ Other useful commands:
 | **Check all & email** | Checks everything and emails the report to everyone in `MAIL_TO` |
 | **Email these results** | Emails the results shown now (including single re-checks) without checking again |
 | ↻ / **Check this website again** | Checks one website only and updates its row; nothing is emailed |
+| ↻ on an IP address | Pings that address only and updates its row; nothing is emailed |
 | **Download** | CSV (for Excel) or a printable HTML report of the last results |
 | **Quick check** | Checks any public addresses once; not saved or emailed |
 
@@ -217,7 +218,7 @@ Every Down result shows **why**: by HTTP code (*Forbidden 403*, *Login required 
 *Forbidden* often means the site is up but a firewall blocks automated checks.
 
 Manual runs and emails are limited to one per `RUN_COOLDOWN` seconds (default 120); the same
-website can be re-checked every 20 seconds.
+website or IP address can be re-checked every 20 seconds.
 
 ---
 

@@ -241,6 +241,12 @@ def test_ping_replies(monkeypatch, stdout, returncode, status, ms, received, low
     assert r.down_reason is None
 
 
+def test_check_ip_pings_one_address(monkeypatch):
+    calls = fake_ping(monkeypatch, LINUX_OK)
+    r = checker.check_ip({"ip": "10.0.0.1", "name": "Box"})
+    assert (r.status, r.url, r.name) == ("UP", "10.0.0.1", "Box") and len(calls) == 1
+
+
 @pytest.mark.parametrize("stdout, returncode", [
     (LINUX_NONE, 1),
     (WINDOWS_UNREACHABLE, 0),                           # Windows exits with 0 here

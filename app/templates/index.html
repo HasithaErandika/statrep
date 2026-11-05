@@ -8,7 +8,7 @@
   <link rel="preload" href="{{ url_for('static', filename='fonts/inter.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body data-check-url="{{ url_for('check_once') }}" data-site-check-url="{{ url_for('check_site') }}" data-status-url="{{ url_for('api_status') }}" data-running="{{ 'true' if running else 'false' }}">
+<body data-check-url="{{ url_for('check_once') }}" data-site-check-url="{{ url_for('check_site') }}" data-ip-check-url="{{ url_for('check_ip') }}" data-status-url="{{ url_for('api_status') }}" data-running="{{ 'true' if running else 'false' }}">
 {% from "_site.html" import site_row, pending_row, api_row, api_pending_row, ip_row, ip_pending_row, icon with context %}
 {% set noun = 'services' if (apis or api_list or ips or ip_list) else 'websites' %}
 
@@ -76,7 +76,7 @@
         {% endif %}
         {% if run and not running %}
         <form method="post" action="{{ url_for('email_report') }}" class="email-form">
-          <button class="btn btn-outline" type="submit" title="Email the results shown on this page, including websites you re-checked one by one, without checking again">
+          <button class="btn btn-outline" type="submit" title="Email the results shown on this page, including anything you re-checked one by one, without checking again">
             {{ icon('mail') }}<span>Email these results</span>
           </button>
         </form>
@@ -202,9 +202,10 @@
     <div class="card-head">
       <div>
         <h2>IP addresses <span class="count">{{ ips|length if run else ip_list|length }}</span></h2>
-        <p>Each address in <code>config/ip.yml</code> is pinged on every check. Response is the average reply time.</p>
+        <p>Each address in <code>config/ip.yml</code> is pinged on every check. Response is the average reply time. Use the refresh button to ping just one address again; nothing is emailed.</p>
       </div>
     </div>
+    <div id="ip-error" class="alert alert-error alert-inset" role="alert" hidden></div>
     <div class="rows">
       <div class="row row-head" aria-hidden="true">
         <span>IP address</span><span>Status</span><span>Response</span><span>Replies</span><span>Loss</span><span>Min</span><span>Max</span><span></span>
