@@ -40,6 +40,29 @@
     return container && container.querySelector('[data-key="' + CSS.escape(key) + '"]');
   }
 
+  // ---------- Monitor sections ----------
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"][aria-controls]'));
+  tabs.forEach(function (tab, index) {
+    tab.addEventListener('click', function () { activateTab(index, false); });
+    tab.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      var next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 :
+        (index + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      activateTab(next, true);
+    });
+  });
+  function activateTab(index, focus) {
+    tabs.forEach(function (tab, i) {
+      var active = i === index;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      tab.tabIndex = active ? 0 : -1;
+      document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
+    });
+    if (focus) tabs[index].focus();
+  }
+
   document.getElementById('run-form').addEventListener('submit', function (e) {
     var form = this, clicked = e.submitter || form.querySelector('[type=submit]');
     clicked.classList.add('is-loading');
@@ -171,6 +194,7 @@
     var isIp = btn.dataset.ipCheck !== undefined;
     var errBox = isIp ? ipErr : siteErr;
     var row = btn.closest('.site');
+    if (!row || btn.disabled) return;
     var label = btn.querySelector('span').textContent;
     errBox.hidden = true;
     setBusy(btn, true, '#i-refresh', label);
@@ -180,6 +204,7 @@
         var tpl = document.createElement('template');
         tpl.innerHTML = d.html.trim();
         var fresh = tpl.content.firstElementChild;
+        if (!fresh || !fresh.classList.contains('site')) throw new Error('The server returned an invalid check result.');
         fresh.dataset.order = row.dataset.order;
         row.replaceWith(fresh);
         fresh.classList.add('is-flash');

@@ -128,7 +128,13 @@
     <div class="alert alert-error" role="alert">{{ icon('x') }}{{ note[1] }}</div>
   {% endif %}
 
-  <section class="card card-list">
+  <nav class="section-tabs" role="tablist" aria-label="Monitor type">
+    <button type="button" class="section-tab is-active" role="tab" id="tab-websites" aria-controls="panel-websites" aria-selected="true">{{ icon('globe') }} Websites <span>{{ results|length if run else sites|length }}</span></button>
+    {% if apis or api_list %}<button type="button" class="section-tab" role="tab" id="tab-apis" aria-controls="panel-apis" aria-selected="false" tabindex="-1">{{ icon('code') }} APIs <span>{{ apis|length if run else api_list|length }}</span></button>{% endif %}
+    {% if ips or ip_list %}<button type="button" class="section-tab" role="tab" id="tab-ips" aria-controls="panel-ips" aria-selected="false" tabindex="-1">{{ icon('server') }} IP addresses <span>{{ ips|length if run else ip_list|length }}</span></button>{% endif %}
+  </nav>
+
+  <section class="card card-list monitor-panel" role="tabpanel" id="panel-websites" aria-labelledby="tab-websites">
     <div class="card-head">
       <div>
         <h2>Websites <span class="count">{{ results|length if run else sites|length }}</span></h2>
@@ -177,7 +183,7 @@
   </section>
 
   {% if apis or api_list %}
-  <section class="card">
+  <section class="card monitor-panel" role="tabpanel" id="panel-apis" aria-labelledby="tab-apis" {% if not (apis or api_list) %}hidden{% endif %}>
     <div class="card-head">
       <div>
         <h2>APIs <span class="count">{{ apis|length if run else api_list|length }}</span></h2>
@@ -198,7 +204,7 @@
   {% endif %}
 
   {% if ips or ip_list %}
-  <section class="card">
+  <section class="card monitor-panel" role="tabpanel" id="panel-ips" aria-labelledby="tab-ips" {% if not (ips or ip_list) %}hidden{% endif %}>
     <div class="card-head">
       <div>
         <h2>IP addresses <span class="count">{{ ips|length if run else ip_list|length }}</span></h2>

@@ -166,6 +166,21 @@ code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: va
 .card-head p { margin-top: 2px; font-size: 13px; color: var(--muted); }
 .count { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: var(--purple); background: #f4ecf3; }
 
+/* ---------- Monitor type tabs ---------- */
+.section-tabs { display: flex; gap: 4px; padding: 5px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); box-shadow: var(--shadow); overflow-x: auto; }
+.section-tab { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 16px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--fg-2); cursor: pointer; white-space: nowrap;
+  font: 600 13px/1 "Inter", system-ui, sans-serif; }
+.section-tab .i { color: var(--muted); }
+.section-tab > span { padding: 2px 7px; border-radius: 999px; background: var(--row); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.section-tab:hover { background: var(--tint); color: var(--fg); }
+.section-tab.is-active { background: #f4ecf3; color: var(--purple); }
+.section-tab.is-active .i { color: var(--purple); }
+.section-tab.is-active > span { background: #fff; color: var(--purple); }
+.section-tab:focus-visible { outline: 2px solid rgba(196, 13, 66, .35); outline-offset: 1px; }
+.monitor-panel[hidden] { display: none; }
+
 /* ---------- List toolbar (search, filters, sort); sticks to the top while scrolling ---------- */
 /* clip, not hidden: hidden would stop the sticky header (browsers without clip just lose stickiness) */
 .card-list { overflow: hidden; overflow: clip; }
