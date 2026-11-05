@@ -45,19 +45,19 @@ def fake_smtp(monkeypatch):
 
 
 def test_each_recipient_gets_own_copy():
-    assert mailer.send_report(RUN, RESULTS, []) == []
+    assert mailer.send_report(RUN, RESULTS, [], []) == []
     assert FakeSMTP.delivered == config.MAIL_TO and FakeSMTP.instances == 1
 
 
 def test_refused_recipient_does_not_stop_the_rest():
     FakeSMTP.plan = {"b@x.com": "refuse"}
-    assert mailer.send_report(RUN, RESULTS, []) == ["b@x.com"]
+    assert mailer.send_report(RUN, RESULTS, [], []) == ["b@x.com"]
     assert FakeSMTP.delivered == ["a@x.com", "c@x.com", "d@x.com", "e@x.com"]
 
 
 def test_reconnects_once_after_disconnect():
     FakeSMTP.plan = {"c@x.com": "drop"}
-    assert mailer.send_report(RUN, RESULTS, []) == []
+    assert mailer.send_report(RUN, RESULTS, [], []) == []
     assert FakeSMTP.delivered == config.MAIL_TO and FakeSMTP.instances == 2
 
 
@@ -71,14 +71,14 @@ def test_second_disconnect_marks_remaining_as_failed():
         original(self, msg)
     FakeSMTP.send_message = drop_again_after_reconnect
     try:
-        assert mailer.send_report(RUN, RESULTS, []) == ["d@x.com", "e@x.com"]
+        assert mailer.send_report(RUN, RESULTS, [], []) == ["d@x.com", "e@x.com"]
     finally:
         FakeSMTP.send_message = original
     assert FakeSMTP.delivered == ["a@x.com", "b@x.com", "c@x.com"]
 
 
 def test_message_has_text_and_html_parts_and_logo():
-    msg = mailer._build_message(RUN, RESULTS, [])
+    msg = mailer._build_message(RUN, RESULTS, [], [])
     types = [part.get_content_type() for part in msg.walk()]
     assert types == ["multipart/related", "multipart/alternative", "text/plain", "text/html", "image/png"]
     text = msg.get_payload(0).get_payload(0).get_payload(decode=True).decode()
@@ -98,7 +98,7 @@ def test_ip_whitelisted_relay_skips_login_and_tls(monkeypatch):
     monkeypatch.setattr(config, "SMTP_USER", "")
     monkeypatch.setattr(config, "SMTP_PASS", "")
     monkeypatch.setattr(config, "SMTP_TLS", False)
-    assert mailer.send_report(RUN, RESULTS, []) == []
+    assert mailer.send_report(RUN, RESULTS, [], []) == []
     assert calls == [] and FakeSMTP.delivered == config.MAIL_TO
 
 
@@ -107,5 +107,22 @@ def test_login_used_when_credentials_set(monkeypatch):
     monkeypatch.setattr(FakeSMTP, "login", lambda self, u, p: calls.append((u, p)))
     monkeypatch.setattr(config, "SMTP_USER", "user")
     monkeypatch.setattr(config, "SMTP_PASS", "pass")
-    mailer.send_report(RUN, RESULTS, [])
+    mailer.send_report(RUN, RESULTS, [], [])
     assert calls == [("user", "pass")]
+
+
+def test_report_includes_ip_addresses():
+    ips = [checker.Result("10.0.0.1", "Switch", "UP", ms=3, kind="ip",
+                          ping={"sent": 3, "received": 3, "loss": 0, "min": 2.0, "max": 4.0}),
+           checker.Result("10.0.0.2", "Router", "DOWN", kind="ip", error="No reply to ping",
+                          ping={"sent": 3, "received": 0, "loss": 100}),
+           checker.Result("10.0.0.3", "Printer", "DOWN", kind="ip", error="Ping could not run")]
+    run = {**RUN, "total": 5}
+    msg = mailer._build_message(run, RESULTS, [], ips)
+    assert msg["Subject"].startswith("[StatRep] 3 of 5 services down")
+    text = mailer.render_text(run, RESULTS, [], ips)
+    assert "IP addresses:" in text and "DOWN (No reply)  Router  No reply to ping" in text
+    html = mailer.render_report(run, RESULTS, [], ips, "cid:x")
+    assert "IP addresses" in html and "10.0.0.2" in html and "100%" in html and "3/3" in html
+    # Pings don't count towards the average response of websites and APIs
+    assert mailer.render_report(run, RESULTS[:1], [], ips[:1], "cid:x").count("120 ms") == 2

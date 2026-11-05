@@ -84,3 +84,42 @@ def test_api_entry_fills_secrets_from_env(monkeypatch):
 ])
 def test_bad_api_entries_become_config_errors(raw, error):
     assert error in config._api_entry(1, raw)["config_error"]
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("10.0.0.1", {"ip": "10.0.0.1", "name": "10.0.0.1"}),
+    ({"ip": "172.20.16.11", "name": "Switch"}, {"ip": "172.20.16.11", "name": "Switch"}),
+    ({"ip": "2001:DB8::1"}, {"ip": "2001:db8::1", "name": "2001:DB8::1"}),
+])
+def test_ip_entries(raw, expected):
+    assert config._ip_entry(raw) == expected
+
+
+@pytest.mark.parametrize("raw, error", [
+    ("example.com", "must be an IP address"),
+    ("https://10.0.0.1/", "must be an IP address"),
+    ("-f", "must be an IP address"),                 # would be an option on the ping command line
+    ("10.0.0.1; reboot", "must be an IP address"),
+    (42, "must be an IP address"),
+    (None, "must be an IP address"),
+    ({"name": "No address"}, "must be an IP address"),
+    ({"ip": "10.0.0.1", "port": 22}, "unknown option: port"),
+])
+def test_bad_ip_entries_become_config_errors(raw, error):
+    assert error in config._ip_entry(raw)["config_error"]
+
+
+def test_load_ips(tmp_path, monkeypatch):
+    f = tmp_path / "ip.yml"
+    monkeypatch.setattr(config, "IPS_FILE", str(f))
+    assert config.load_ips() == []                                  # the file is optional
+    f.write_text("# only comments\n")
+    assert config.load_ips() == []
+    f.write_text("- 10.0.0.1\n- ip: 10.0.0.2\n  name: B\n")
+    assert [(i["ip"], i["name"]) for i in config.load_ips()] == [("10.0.0.1", "10.0.0.1"), ("10.0.0.2", "B")]
+    f.write_text("ip: 10.0.0.1\n")
+    assert "must be a list" in config.load_ips()[0]["config_error"]
+
+
+def test_shipped_ip_file_is_valid():
+    assert not [i for i in config.load_ips() if i.get("config_error")]

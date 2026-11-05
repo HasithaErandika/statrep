@@ -229,8 +229,8 @@ code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: va
 .site { border-bottom: 1px solid var(--row); }
 .site:last-child { border-bottom: 0; }
 .site[hidden] { display: none; }
-.site-down > summary.row { box-shadow: inset 3px 0 0 var(--crimson); }
-.site-slow > summary.row { box-shadow: inset 3px 0 0 var(--orange); }
+.site-down > .row { box-shadow: inset 3px 0 0 var(--crimson); }
+.site-slow > .row { box-shadow: inset 3px 0 0 var(--orange); }
 summary.row { cursor: pointer; list-style: none; transition: background .12s; }
 summary.row::-webkit-details-marker { display: none; }
 summary.row:hover { background: var(--tint); }

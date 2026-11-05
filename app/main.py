@@ -102,11 +102,11 @@ def create_app():
 
     @app.get("/")
     def index():
-        results, apis = service.latest["results"], service.latest["apis"]
+        results, apis, ips = service.latest["results"], service.latest["apis"], service.latest["ips"]
         sites = config.load_sites()
-        everything = results + apis
+        everything = results + apis + ips
         wait = request.args.get("wait", type=int)
-        timed = [r.ms for r in everything if r.ms]
+        timed = [r.ms for r in results + apis if r.ms]  # pings would skew the average
         next_runs = [j.next_run_time for j in scheduler.get_jobs() if j.next_run_time]
         return render_template(
             "index.html",
@@ -116,11 +116,13 @@ def create_app():
             results=sorted(results, key=lambda r: STATUS_ORDER.get(r.status, 2)),
             order={s["url"]: i for i, s in enumerate(sites)},  # "As in sites.yml" sort
             apis=sorted(apis, key=lambda r: STATUS_ORDER.get(r.status, 2)),
+            ips=sorted(ips, key=lambda r: STATUS_ORDER.get(r.status, 2)),
             counts={**{s: sum(r.status == s for r in everything) for s in ("UP", "SLOW", "DOWN")},
                     "EXPIRING": sum(r.expiring for r in everything)},
             avg_ms=int(sum(timed) / len(timed)) if timed else 0,
             sites=sites,
             api_list=config.load_apis(),
+            ip_list=config.load_ips(),
             next_run=min(next_runs).strftime("%a %d %b, %H:%M") if next_runs else "-",
             wait=wait if wait and wait > 0 else None,
             sent=request.args.get("sent") == "1",
@@ -143,12 +145,12 @@ def create_app():
 
     @app.get("/report.<fmt>")
     def download_report(fmt):
-        run, results, apis = service.latest["run"], service.latest["results"], service.latest["apis"]
+        run, results, apis, ips = (service.latest[k] for k in ("run", "results", "apis", "ips"))
         if not run or fmt not in ("csv", "html"):
             abort(404)
         filename = f"statrep-report-{run['started_at'].replace(' ', '-').replace(':', '')}.{fmt}"
         if fmt == "html":
-            body = mailer.render_standalone(run, results, apis)
+            body = mailer.render_standalone(run, results, apis, ips)
             mimetype = "text/html"
         else:
             out = io.StringIO()
@@ -159,13 +161,13 @@ def create_app():
                 "SSL issuer", "SSL expires", "SSL days left", "TLS version", "Domain", "Registrar",
                 "Domain expires", "Domain days left", "Security grade", "Missing security headers",
                 "Last updated", "Updated source", "Title", "Description", "Method", "Checks passed",
-                "Error", "Checked at"])
+                "Packet loss (%)", "Error", "Checked at"])
             by_status = lambda r: STATUS_ORDER.get(r.status, 2)  # noqa: E731
-            for r in sorted(results, key=by_status) + sorted(apis, key=by_status):
+            for r in sorted(results, key=by_status) + sorted(apis, key=by_status) + sorted(ips, key=by_status):
                 t = r.timing
                 passed = f"{sum(ok for _, ok, _ in r.checks)}/{len(r.checks)}" if r.checks else ""
                 writer.writerow([
-                    "API" if r.kind == "api" else "Website", r.name, r.url, r.status,
+                    {"api": "API", "ip": "IP"}.get(r.kind, "Website"), r.name, r.url, r.status,
                     r.down_reason[0] if r.down_reason else "", r.code or "", r.ms or "", t.get("dns", ""),
                     t.get("connect", ""), t.get("tls", ""), t.get("server", ""), t.get("download", ""),
                     r.final_url or "", " > ".join(f"{h['code']} {h['url']}" for h in r.redirects),
@@ -176,7 +178,8 @@ def create_app():
                     "" if r.domain_days is None else r.domain_days, r.sec_grade or "",
                     ", ".join(n for n, _, ok in r.sec_headers if not ok),
                     filters.fmtdate(r.updated), r.updated_source or "", r.title or "",
-                    r.description or "", r.method or "", passed, r.error or "", run["started_at"]])
+                    r.description or "", r.method or "", passed, r.ping.get("loss", ""), r.error or "",
+                    run["started_at"]])
             body = "﻿" + out.getvalue()  # BOM so Excel reads UTF-8 correctly
             mimetype = "text/csv"
         return Response(body, mimetype=mimetype,
@@ -229,7 +232,8 @@ def create_app():
     def api_status():
         return jsonify({"running": service.latest["running"], "run": service.latest["run"],
                         "results": [vars(r) for r in service.latest["results"]],
-                        "apis": [vars(r) for r in service.latest["apis"]]})
+                        "apis": [vars(r) for r in service.latest["apis"]],
+                        "ips": [vars(r) for r in service.latest["ips"]]})
 
     @app.get("/health")
     def health():

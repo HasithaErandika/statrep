@@ -27,18 +27,18 @@ env = Environment(
 filters.register(env)
 
 
-def render_report(run, results, apis, logo_src):
+def render_report(run, results, apis, ips, logo_src):
     return env.get_template("email.html").render(
-        run=run, results=results, apis=apis, logo_src=logo_src,
+        run=run, results=results, apis=apis, ips=ips, logo_src=logo_src,
         ssl_warn_days=config.SSL_WARN_DAYS, domain_warn_days=config.DOMAIN_WARN_DAYS,
         check_times=config.CHECK_TIMES, tz=config.TZ,
         dashboard_url=config.DASHBOARD_URL,
     )
 
 
-def render_standalone(run, results, apis):
+def render_standalone(run, results, apis, ips):
     """Report as a self-contained HTML file (logo embedded), for download."""
-    return render_report(run, results, apis, LOGO_DATA_URI)
+    return render_report(run, results, apis, ips, LOGO_DATA_URI)
 
 
 def mask(addr):
@@ -61,8 +61,8 @@ def _connect():
     return server
 
 
-def subject_noun(apis):
-    return "services" if apis else "websites"
+def subject_noun(apis, ips):
+    return "services" if apis or ips else "websites"
 
 
 def reason_counts(down):
@@ -70,12 +70,12 @@ def reason_counts(down):
     return Counter(r.down_reason[0] for r in down).most_common()
 
 
-def render_text(run, results, apis):
+def render_text(run, results, apis, ips):
     """Plain-text version of the report, for text-only mail clients and spam filters."""
-    everything = results + apis
+    everything = results + apis + ips
     down = [r for r in everything if r.status == "DOWN"]
     slow = [r for r in everything if r.status == "SLOW"]
-    noun = subject_noun(apis)
+    noun = subject_noun(apis, ips)
     if down:
         headline = f"{len(down)} of {run['total']} {noun} are down"
     elif slow:
@@ -86,7 +86,7 @@ def render_text(run, results, apis):
     if down:
         lines.append("Down: " + ", ".join(f"{n} {label}" for label, n in reason_counts(down)))
     lines.append("")
-    for title, items in (("Websites", results), ("APIs", apis)):
+    for title, items in (("Websites", results), ("APIs", apis), ("IP addresses", ips)):
         if items:
             lines.append(f"{title}:")
             for r in sorted(items, key=lambda r: {"DOWN": 0, "SLOW": 1}.get(r.status, 2)):
@@ -99,9 +99,9 @@ def render_text(run, results, apis):
     return "\n".join(lines)
 
 
-def _build_message(run, results, apis):
-    down = [r for r in results + apis if r.status == "DOWN"]
-    noun = subject_noun(apis)
+def _build_message(run, results, apis, ips):
+    down = [r for r in results + apis + ips if r.status == "DOWN"]
+    noun = subject_noun(apis, ips)
     if down:
         subject = f"[StatRep] {len(down)} of {run['total']} {noun} down – {run['started_at']}"
     else:
@@ -109,8 +109,8 @@ def _build_message(run, results, apis):
 
     # related( alternative( text, html ), logo )
     body = MIMEMultipart("alternative")
-    body.attach(MIMEText(render_text(run, results, apis), "plain", "utf-8"))
-    body.attach(MIMEText(render_report(run, results, apis, f"cid:{LOGO_CID}"), "html", "utf-8"))
+    body.attach(MIMEText(render_text(run, results, apis, ips), "plain", "utf-8"))
+    body.attach(MIMEText(render_report(run, results, apis, ips, f"cid:{LOGO_CID}"), "html", "utf-8"))
     msg = MIMEMultipart("related")
     msg["Subject"] = subject
     msg["From"] = f"StatRep <{config.MAIL_FROM}>"
@@ -130,14 +130,14 @@ def _close(server):
         pass
 
 
-def send_report(run, results, apis):
+def send_report(run, results, apis, ips):
     """Send each recipient their own copy over one SMTP connection.
 
     If the connection drops part-way, it reconnects once and carries on with the remaining
     recipients. Returns the recipients that did not get the report; raises only if the server
     can't be reached or logged into at the start.
     """
-    msg = _build_message(run, results, apis)
+    msg = _build_message(run, results, apis, ips)
     pending, failed, reconnected = list(config.MAIL_TO), [], False
     server = _connect()
     try:

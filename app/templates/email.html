@@ -1,8 +1,8 @@
-{% set everything = results + apis %}
-{% set noun = 'services' if apis else 'websites' %}
+{% set everything = results + apis + ips %}
+{% set noun = 'services' if apis or ips else 'websites' %}
 {% set down = everything | selectattr('status', 'equalto', 'DOWN') | list %}
 {% set slow = everything | selectattr('status', 'equalto', 'SLOW') | list %}
-{% set timed = everything | selectattr('ms') | map(attribute='ms') | list %}
+{% set timed = (results + apis) | selectattr('ms') | map(attribute='ms') | list %}
 {% set level = 'down' if down else ('slow' if slow else 'up') %}
 {% set tone = {
   'up':   {'fg': '#0b7a55', 'bg': '#e9f8f1', 'line': '#b4e6d0'},
@@ -42,7 +42,7 @@
         <td valign="middle" width="52"><img src="{{ logo_src }}" width="44" height="44" alt="StatRep" style="display:block;border:0"></td>
         <td valign="middle" style="padding-left:10px">
           <div style="font-size:19px;font-weight:700;letter-spacing:-.3px">Stat<span style="color:#c40d42">Rep</span></div>
-          <div style="font-size:12px;color:#737373">{{ 'Website & API' if apis else 'Website' }} Status Report</div>
+          <div style="font-size:12px;color:#737373">{{ 'Service' if ips else 'Website & API' if apis else 'Website' }} Status Report</div>
         </td>
         <td valign="middle" align="right" style="font-size:12px;color:#737373;line-height:1.5">
           {{ run.started_at }}<br>{{ {'scheduled': 'Scheduled check', 'resend': 'Latest results'}.get(run.trigger, 'Manual check') }}
@@ -155,6 +155,36 @@
             {{ r.ssl_days ~ ' days' if r.ssl_days is not none else '–' }}</td>
           <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.domain_days is not none and r.domain_days < domain_warn_days else 'color:#525252' }}">
             {% if r.domain_days is not none %}{{ r.domain_days }} days{% elif r.domain_note and r.domain_note.startswith('Shared') %}Shared{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td></tr>
+    {% endif %}
+
+    <!-- IP addresses -->
+    {% if ips %}
+    <tr><td style="padding:16px 28px 8px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#737373;margin-bottom:8px">IP addresses</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ececec;border-radius:12px;border-collapse:separate;overflow:hidden;font-size:13px">
+        <tr style="background:#fafafa">
+          {% for h in ['IP address', 'Status', 'Response', 'Replies', 'Loss'] %}
+          <th align="left" style="padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:#737373;border-bottom:1px solid #ececec">{{ h }}</th>
+          {% endfor %}
+        </tr>
+        {% for r in ips | selectattr('status', 'equalto', 'DOWN') | list + ips | selectattr('status', 'equalto', 'SLOW') | list + ips | selectattr('status', 'equalto', 'UP') | list %}
+        {% set t = tone[{'UP': 'up', 'SLOW': 'slow', 'DOWN': 'down'}[r.status]] %}
+        <tr>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }}">
+            <div style="color:#1a1a1a;font-weight:600">{{ r.name }}</div>
+            {% if r.name != r.url %}<div style="color:#737373;font-size:11px;margin-top:2px">{{ r.url }}</div>{% endif %}
+            {% if r.error %}<div style="color:#c40d42;font-size:12px;margin-top:2px">{{ r.error }}</div>{% endif %}
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap">
+            {{ status_pill(r, t) }}
+          </td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ms ~ ' ms' if r.ms else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};color:#525252;white-space:nowrap">{{ r.ping.received ~ '/' ~ r.ping.sent if r.ping else '–' }}</td>
+          <td style="padding:12px;border-top:{{ '0' if loop.first else '1px solid #f0f0f0' }};white-space:nowrap;{{ 'color:#c40d42;font-weight:700' if r.ping.loss else 'color:#525252' }}">{{ r.ping.loss ~ '%' if r.ping else '–' }}</td>
         </tr>
         {% endfor %}
       </table>

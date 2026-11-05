@@ -68,7 +68,7 @@ mkdir statrep
 cd statrep
 mkdir config
 ```
-Put `.env.example` and `config/sites.yml` (and `config/apis.yml` if you check APIs) in that folder,
+Put `.env.example` and `config/sites.yml` (and `config/apis.yml` / `config/ip.yml` if you check APIs or IP addresses) in that folder,
 then create `docker-compose.yml` there with:
 ```yaml
 services:
@@ -135,6 +135,17 @@ All options and examples are at the top of the file. Put tokens in `.env` (e.g.
 `ORDERS_API_TOKEN=...`) and use them in the file as `${ORDERS_API_TOKEN}`; they are never shown
 on the page or in the email.
 
+### IP addresses (optional): `config/ip.yml`
+```yaml
+- 10.20.30.40
+- ip: 172.20.16.11
+  name: Core switch              # optional display name
+```
+Each address gets 3 pings on every run: **Operational** if all are answered, **Slow** if some are
+lost or the average is above `PING_SLOW_MS`, **Down** if none are. Only IP addresses are accepted,
+not names or URLs. A private address can only be reached if the machine running StatRep has a
+route to it (VPN, office network).
+
 ---
 
 ## 4. Start and check that it works
@@ -160,7 +171,7 @@ The same commands work in PowerShell (Windows) and the Linux terminal. Run them 
 
 | You changed… | Run | Why |
 |---|---|---|
-| `config/sites.yml` or `config/apis.yml` | `docker compose restart` | The files are read when StatRep starts |
+| `config/sites.yml`, `config/apis.yml` or `config/ip.yml` | `docker compose restart` | The files are read when StatRep starts |
 | `.env` (recipients, times, passwords…) | `docker compose up -d` | `.env` is only read when the container is created; `restart` is **not** enough |
 | The code: after `git pull`, a new zip, or your own edits | `docker compose up -d --build` | Rebuilds the image with the new code |
 | A new image file (way B) | `docker load -i statrep-image.tar.gz` then `docker compose up -d` | Uses the new image |
@@ -190,7 +201,7 @@ Other useful commands:
 
 | Button | What it does |
 |---|---|
-| **Check all** | Checks every website and API now; nothing is emailed |
+| **Check all** | Checks every website, API and IP address now; nothing is emailed |
 | **Check all & email** | Checks everything and emails the report to everyone in `MAIL_TO` |
 | **Email these results** | Emails the results shown now (including single re-checks) without checking again |
 | ↻ / **Check this website again** | Checks one website only and updates its row; nothing is emailed |
@@ -225,6 +236,7 @@ website can be re-checked every 20 seconds.
 | `CHECK_RETRIES` | `1` | Extra attempts before Down |
 | `SLOW_MS` | `5000` | Websites slower than this (ms) are Slow |
 | `API_SLOW_MS` | `2000` | Default Slow limit for APIs |
+| `PING_SLOW_MS` | `500` | IP addresses with a slower average ping (ms) are Slow |
 | `SSL_WARN_DAYS` / `DOMAIN_WARN_DAYS` | `14` / `30` | "Expiring soon" thresholds |
 | `TIMING_CONCURRENCY` | `10` | Timed requests at once; keep low for accurate response times |
 | `CHECK_CONCURRENCY` | `40` | Sites processed at once for SSL/domain/page details |
@@ -281,11 +293,13 @@ With nginx, forward the host and client IP (`proxy_set_header Host $host;` and
 | "Email failed: SMTP login was rejected" | Wrong `SMTP_USER` / `SMTP_PASS` |
 | "Email failed: the sender address was refused" | `MAIL_FROM` isn't accepted by your mail provider |
 | A change to `.env` has no effect | Use `docker compose up -d`, not `restart` ([section 5](#5-after-you-change-something)) |
-| A row says "Config error: …" | Fix that entry in `sites.yml` / `apis.yml` (the message says what), then `docker compose restart` |
+| A row says "Config error: …" | Fix that entry in `sites.yml` / `apis.yml` / `ip.yml` (the message says what), then `docker compose restart` |
 | "Please wait N seconds…" | Manual runs and emails are limited by `RUN_COOLDOWN` |
 | A site shows *Forbidden 403* but opens in your browser | It blocks automated checks (firewall, IP allow-list); ask its admins to allow this machine's IP |
 | OneDrive / SharePoint links always Operational | They redirect to the Microsoft sign-in page, so StatRep can only tell that Microsoft 365 is reachable, not that the folder exists |
 | 403 when clicking a button behind a proxy | Forward the original `Host` header ([section 8](#8-extra-steps-on-a-server)) |
+| An IP address shows *No reply* but works from your PC | The machine running StatRep has no route to it, or a firewall blocks ping |
+| An IP address shows *Ping failed* | The `ping` command can't run: rebuild with `docker compose up -d --build`; without Docker, install it (`iputils-ping` on Debian/Ubuntu) |
 | Page empty after a restart | Results are kept in memory; click **Check all** |
 
 ---

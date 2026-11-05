@@ -92,3 +92,30 @@ def test_page_has_list_tools(client, monkeypatch):
     html = client.get("/").get_data(as_text=True)
     assert 'id="site-search"' in html and 'data-filter="DOWN"' in html
     assert 'data-site-check="https://a.com"' in html   # re-check button on not-yet-checked rows
+
+
+def test_ip_addresses_on_page_csv_and_status(client, monkeypatch):
+    monkeypatch.setattr(config, "load_ips", lambda: [{"ip": "10.0.0.1", "name": "Switch"}])
+    assert "Not checked" in client.get("/").get_data(as_text=True).split("IP addresses", 1)[1]
+
+    ips = [main.checker.Result("10.0.0.1", "Switch", "UP", ms=3, kind="ip",
+                               ping={"sent": 3, "received": 3, "loss": 0, "min": 2.0, "max": 4.0}),
+           main.checker.Result("10.0.0.2", "10.0.0.2", "DOWN", kind="ip", error="No reply to ping",
+                               ping={"sent": 3, "received": 0, "loss": 100})]
+    site = main.checker.Result("https://a.com", "A", "UP", 200, 1000)
+    monkeypatch.setattr(main.service, "latest", {
+        "run": {"started_at": "2026-11-05 06:00", "trigger": "manual", "total": 3, "up": 2,
+                "emailed": False, "seconds": 1.0},
+        "results": [site], "apis": [], "ips": ips, "note": None, "running": False})
+
+    html = client.get("/").get_data(as_text=True)
+    assert 'data-key="10.0.0.2"' in html and 'data-jump="10.0.0.2"' in html     # status map can jump to it
+    assert "1 of 3 services down" in html and "No reply to ping" in html
+    assert "2.0 ms" in html and "100%" in html
+    assert '1000<small>ms</small>' in html.split("Avg. response", 1)[1]          # pings not averaged in
+
+    csv_text = client.get("/report.csv").get_data(as_text=True)
+    assert "Packet loss (%)" in csv_text and "IP,Switch,10.0.0.1,UP" in csv_text
+    assert "No reply" in csv_text
+    assert [r["url"] for r in client.get("/api/status").get_json()["ips"]] == ["10.0.0.1", "10.0.0.2"]
+    assert "10.0.0.2" in client.get("/report.html").get_data(as_text=True)
