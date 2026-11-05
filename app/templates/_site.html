@@ -96,6 +96,10 @@
         title="Check this website now">{{ icon('refresh') }}<span>{{ label }}</span></button>
 {%- endmacro %}
 
+{% macro ip_check_button(ip) %}
+<button class="btn btn-icon" type="button" data-ip-check="{{ ip }}" title="Ping this address now">{{ icon('refresh') }}<span></span></button>
+{%- endmacro %}
+
 {# data-* attributes drive the search, filters, sorting and status map on the page #}
 {% macro row_data(key, status, name, ms='', expiring=False, reason='') -%}
 data-key="{{ key }}" data-order="{{ order.get(key, '') if order is defined else '' }}" data-status="{{ status }}" data-name="{{ name|lower }}" data-ms="{{ ms or '' }}" data-expiring="{{ 1 if expiring else '' }}" data-reason="{{ reason }}" data-search="{{ (name ~ ' ' ~ key ~ ' ' ~ reason)|lower }}"
@@ -304,13 +308,13 @@ data-key="{{ key }}" data-order="{{ order.get(key, '') if order is defined else 
       <span class="cell-label">Max</span>
       <span class="metric-sm {{ 'muted' if r.ping.max is not defined }}">{{ r.ping.max ~ ' ms' if r.ping.max is defined else '—' }}</span>
     </div>
-    <span class="chev-cell"></span>
+    <span class="chev-cell">{% if not r.error or not r.error.startswith('Config error') %}{{ ip_check_button(r.url) }}{% endif %}</span>
   </div>
 </div>
 {% endmacro %}
 
 {% macro ip_pending_row(entry) %}
-<div class="site">
+<div class="site" {{ row_data(entry.ip, 'DOWN' if entry.config_error else 'PENDING', entry.name) }}>
   <div class="row">
     <div class="cell cell-site">
       <span class="favicon">{{ icon('server') }}</span>
@@ -322,7 +326,7 @@ data-key="{{ key }}" data-order="{{ order.get(key, '') if order is defined else 
     <div class="cell cell-ssl"><span class="cell-label">Loss</span><span class="metric-sm muted">—</span></div>
     <div class="cell cell-domain"><span class="cell-label">Min</span><span class="metric-sm muted">—</span></div>
     <div class="cell cell-sec"><span class="cell-label">Max</span><span class="metric-sm muted">—</span></div>
-    <span class="chev-cell"></span>
+    <span class="chev-cell">{% if not entry.config_error %}{{ ip_check_button(entry.ip) }}{% endif %}</span>
   </div>
 </div>
 {% endmacro %}

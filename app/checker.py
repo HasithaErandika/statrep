@@ -796,6 +796,13 @@ class PingCheck:
         return self.result
 
 
+def check_ip(entry):
+    """Ping one address on its own (the "check again" button)."""
+    check = PingCheck(entry)
+    check.measure()
+    return check.finish()
+
+
 def _run(checks):
     """Run checks in two phases and return their results in order.
 

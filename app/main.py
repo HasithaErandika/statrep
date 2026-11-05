@@ -228,6 +228,17 @@ def create_app():
             return jsonify(error=f"This website was checked recently. Please wait {wait} seconds."), 429
         return jsonify(html=render_template("_rows.html", results=[result], cfg=config, single=True))
 
+    @app.post("/api/ip-check")
+    def check_ip():
+        """Ping one address from ip.yml again (not emailed)."""
+        entry = service.find_ip(str((request.get_json(silent=True) or {}).get("ip", "")))
+        if not entry:
+            return jsonify(error="This IP address is not in config/ip.yml."), 404
+        result, wait = service.check_single_ip(entry)
+        if wait:
+            return jsonify(error=f"This IP address was checked recently. Please wait {wait} seconds."), 429
+        return jsonify(html=render_template("_rows.html", results=[result], cfg=config, single=True))
+
     @app.get("/api/status")
     def api_status():
         return jsonify({"running": service.latest["running"], "run": service.latest["run"],

@@ -87,6 +87,20 @@ def test_single_site_check_endpoint(client, monkeypatch):
     assert client.post("/api/site-check", json={"url": "https://a.com"}).status_code == 429
 
 
+def test_single_ip_check_endpoint(client, monkeypatch):
+    monkeypatch.setattr(config, "load_ips", lambda: [{"ip": "10.0.0.1", "name": "Switch"}])
+    monkeypatch.setattr(main.service, "check_single_ip", lambda entry: (main.checker.Result(
+        entry["ip"], entry["name"], "UP", ms=3, kind="ip",
+        ping={"sent": 3, "received": 3, "loss": 0, "min": 2.0, "max": 4.0}), 0))
+    assert client.post("/api/ip-check", json={"ip": "10.0.0.9"}).status_code == 404
+    r = client.post("/api/ip-check", json={"ip": "10.0.0.1"})
+    html = r.get_json()["html"]
+    assert r.status_code == 200 and 'data-key="10.0.0.1"' in html and 'data-ip-check="10.0.0.1"' in html
+    assert "3/3" in html
+    monkeypatch.setattr(main.service, "check_single_ip", lambda entry: (None, 7))
+    assert client.post("/api/ip-check", json={"ip": "10.0.0.1"}).status_code == 429
+
+
 def test_page_has_list_tools(client, monkeypatch):
     monkeypatch.setattr(config, "load_sites", lambda: [{"url": "https://a.com", "name": "A"}])
     html = client.get("/").get_data(as_text=True)
@@ -96,7 +110,8 @@ def test_page_has_list_tools(client, monkeypatch):
 
 def test_ip_addresses_on_page_csv_and_status(client, monkeypatch):
     monkeypatch.setattr(config, "load_ips", lambda: [{"ip": "10.0.0.1", "name": "Switch"}])
-    assert "Not checked" in client.get("/").get_data(as_text=True).split("IP addresses", 1)[1]
+    pending = client.get("/").get_data(as_text=True).split("IP addresses", 1)[1]
+    assert "Not checked" in pending and 'data-ip-check="10.0.0.1"' in pending
 
     ips = [main.checker.Result("10.0.0.1", "Switch", "UP", ms=3, kind="ip",
                                ping={"sent": 3, "received": 3, "loss": 0, "min": 2.0, "max": 4.0}),
@@ -110,6 +125,7 @@ def test_ip_addresses_on_page_csv_and_status(client, monkeypatch):
 
     html = client.get("/").get_data(as_text=True)
     assert 'data-key="10.0.0.2"' in html and 'data-jump="10.0.0.2"' in html     # status map can jump to it
+    assert 'data-ip-check="10.0.0.2"' in html
     assert "1 of 3 services down" in html and "No reply to ping" in html
     assert "2.0 ms" in html and "100%" in html
     assert '1000<small>ms</small>' in html.split("Avg. response", 1)[1]          # pings not averaged in

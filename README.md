@@ -1,7 +1,7 @@
 # StatRep - Website & API Status Reporter
 
 StatRep checks your websites, APIs and IP addresses several times a day and emails a status report to your team.
-Its web page shows the results and lets you re-check one site, check all, or email the report at any time.
+Its web page shows the results and lets you re-check one site or IP address, check all, or email the report at any time.
 
 - **What:** websites in `config/sites.yml`, APIs in `config/apis.yml`, IP addresses to ping in `config/ip.yml`.
 - **When:** every day at `CHECK_TIMES` (default 06:00, 07:45, 16:30, 20:00); scheduled reports are always emailed.
