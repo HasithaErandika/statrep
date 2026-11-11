@@ -139,7 +139,8 @@ def _read_yaml_list(path):
 
 
 def _site_entry(raw):
-    """Normalise one sites.yml entry: a URL, or a mapping with url and an optional name."""
+    """Normalise one sites.yml entry: a URL, or a mapping with url, an optional name and an
+    optional verify_ssl: false (for internal sites with a self-signed or IP-address certificate)."""
     if isinstance(raw, str):
         raw = {"url": raw}
     if not isinstance(raw, dict):
@@ -148,12 +149,17 @@ def _site_entry(raw):
     if url and "://" not in url:
         url = "https://" + url
     site = {"url": url, "name": raw.get("name") and str(raw["name"])}
-    unknown = set(raw) - {"url", "name"}
+    unknown = set(raw) - {"url", "name", "verify_ssl"}
     parsed = urlparse(url)
     if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
         return {**site, "name": site["name"] or url or "Site", "config_error": "Config error: url must be an http(s) address"}
     if unknown:
         return {**site, "config_error": f"Config error: unknown option: {', '.join(sorted(map(str, unknown)))}"}
+    if "verify_ssl" in raw:
+        if not isinstance(raw["verify_ssl"], bool):
+            return {**site, "config_error": "Config error: verify_ssl must be true or false"}
+        if not raw["verify_ssl"]:
+            site["verify_ssl"] = False
     return site
 
 

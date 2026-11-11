@@ -128,7 +128,12 @@ All other settings are optional; see [section 7](#7-all-settings-env).
 - https://example.com/
 - url: portal.example.com        # https:// is added if missing
   name: Customer portal          # optional display name
+- url: https://10.0.0.5:8443/login
+  name: Internal portal
+  verify_ssl: false              # self-signed / IP-address certificate: skip the SSL check
 ```
+Use `verify_ssl: false` only for internal sites you trust that show *SSL error* but open fine in
+the browser (after accepting the certificate warning). Their SSL column then shows "Not verified".
 
 ### APIs (optional): `config/apis.yml`
 All options and examples are at the top of the file. Put tokens in `.env` (e.g.
@@ -299,6 +304,7 @@ With nginx, forward the host and client IP (`proxy_set_header Host $host;` and
 | A site shows *Forbidden 403* but opens in your browser | It blocks automated checks (firewall, IP allow-list); ask its admins to allow this machine's IP |
 | OneDrive / SharePoint links always Operational | They redirect to the Microsoft sign-in page, so StatRep can only tell that Microsoft 365 is reachable, not that the folder exists |
 | 403 when clicking a button behind a proxy | Forward the original `Host` header ([section 8](#8-extra-steps-on-a-server)) |
+| An internal site shows *SSL error* but opens in your browser | Its certificate is self-signed, for an IP address, or missing an intermediate: add `verify_ssl: false` to it in `sites.yml` |
 | An IP address shows *No reply* but works from your PC | The machine running StatRep has no route to it, or a firewall blocks ping |
 | An IP address shows *Ping failed* | The `ping` command can't run: rebuild with `docker compose up -d --build`; without Docker, install it (`iputils-ping` on Debian/Ubuntu) |
 | Page empty after a restart | Results are kept in memory; click **Check all** |

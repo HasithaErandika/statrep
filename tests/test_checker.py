@@ -316,3 +316,53 @@ def test_check_everything_splits_sites_apis_and_ips(monkeypatch):
         [{"name": "a", "display_url": "", "config_error": "Config error: y"}],
         [{"ip": "10.0.0.1", "name": "Box"}])
     assert [[r.kind for r in group] for group in (sites, apis, ips)] == [["site"], ["api"], ["ip"]]
+
+
+def test_verify_ssl_false_skips_certificate_check(monkeypatch):
+    sessions = []
+    real = checker.new_session
+    monkeypatch.setattr(checker, "new_session", lambda *a: sessions.append(real(*a)) or sessions[-1])
+    monkeypatch.setattr(checker, "_fetch", lambda session, url, name: (checker.Result(url, name, "UP"), None))
+    checker.SiteCheck({"url": "https://10.0.0.5:8443/", "verify_ssl": False}).measure()
+    checker.SiteCheck({"url": "https://a.com/"}).measure()
+    assert [s.verify for s in sessions] == [False, True]
+
+
+def test_verify_ssl_false_accepts_self_signed_certificate():
+    """Against a real self-signed server: DOWN with SSL error by default, UP with verify_ssl: false."""
+    import http.server
+    import shutil
+    import subprocess
+    import ssl
+    import threading
+    if not shutil.which("openssl"):
+        pytest.skip("openssl not installed")
+    tmp = __import__("tempfile").mkdtemp()
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=self",
+                    "-keyout", f"{tmp}/k.pem", "-out", f"{tmp}/c.pem"], check=True, capture_output=True)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"<html><title>Internal</title>" + b"x" * 100 + b"</html>"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(f"{tmp}/c.pem", f"{tmp}/k.pem")
+    server.socket = ctx.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"https://127.0.0.1:{server.server_address[1]}/"
+    try:
+        strict = checker.check_site({"url": url})
+        relaxed = checker.check_site({"url": url, "verify_ssl": False})
+    finally:
+        server.shutdown()
+    assert strict.status == "DOWN" and strict.error == "SSL certificate error"
+    assert relaxed.status == "UP" and relaxed.title == "Internal"
+    assert relaxed.ssl_issuer.startswith("Not verified") and relaxed.tls_version

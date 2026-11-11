@@ -29,6 +29,8 @@ def test_int_settings_give_clear_errors(monkeypatch):
 @pytest.mark.parametrize("raw, expected", [
     ("https://a.com/", {"url": "https://a.com/", "name": None}),
     ({"url": "b.org", "name": "B"}, {"url": "https://b.org", "name": "B"}),
+    ({"url": "https://10.0.0.5:8443/", "verify_ssl": False}, {"url": "https://10.0.0.5:8443/", "name": None, "verify_ssl": False}),
+    ({"url": "https://c.com", "verify_ssl": True}, {"url": "https://c.com", "name": None}),
 ])
 def test_site_entries(raw, expected):
     assert config._site_entry(raw) == expected
@@ -38,6 +40,7 @@ def test_site_entries(raw, expected):
     ({"url": "ftp://x"}, "http(s)"),
     ({"url": "https://x.com", "colour": "red"}, "unknown option: colour"),
     (42, "must be a URL"),
+    ({"url": "https://x.com", "verify_ssl": "no"}, "verify_ssl must be true or false"),
 ])
 def test_bad_site_entries_become_config_errors(raw, error):
     assert error in config._site_entry(raw)["config_error"]
@@ -123,3 +126,7 @@ def test_load_ips(tmp_path, monkeypatch):
 
 def test_shipped_ip_file_is_valid():
     assert not [i for i in config.load_ips() if i.get("config_error")]
+
+
+def test_shipped_sites_file_is_valid():
+    assert not [s for s in config.load_sites() if s.get("config_error")]

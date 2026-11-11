@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -24,10 +25,13 @@ import tldextract
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection, HTTPSConnection
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.exceptions import InsecureRequestWarning
 
 from . import config
 
 log = logging.getLogger("statrep")
+# Only sites with verify_ssl: false in sites.yml skip the certificate check; that is deliberate
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 HEADERS = {"User-Agent": "Mozilla/5.0 (StatRep uptime checker)"}
 MAX_PAGE_BYTES = 2_000_000      # stop downloading pages/sitemaps beyond this
 MAX_REDIRECTS = 10
@@ -266,9 +270,11 @@ class PublicOnlyAdapter(HTTPAdapter):
             raise BlockedAddress(f"{e} is a private or internal address", request=request) from None
 
 
-def new_session(public_only=False):
-    """One session per site check, so the page, sitemap and HTTP probe share connections."""
+def new_session(public_only=False, verify=True):
+    """One session per site check, so the page, sitemap and HTTP probe share connections.
+    verify=False skips the SSL certificate check (sites.yml verify_ssl: false)."""
     session = requests.Session()
+    session.verify = verify
     session.headers.update(HEADERS)
     session.max_redirects = MAX_REDIRECTS
     session.trust_env = False  # ignore ~/.netrc and proxy env vars
@@ -324,7 +330,7 @@ def _get(session, url, timeout, deadline=None, method="GET", **kwargs):
 
 # --- Connection probe: DNS, TCP connect, TLS handshake and certificate ---------------------
 
-def probe_connection(url, result, public_only=False):
+def probe_connection(url, result, public_only=False, verify=True):
     parsed = urlparse(url)
     host, https = parsed.hostname, parsed.scheme == "https"
     port = parsed.port or (443 if https else 80)
@@ -340,10 +346,16 @@ def probe_connection(url, result, public_only=False):
             if not https:
                 return
             ctx = ssl.create_default_context()
+            if not verify:
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
             with ctx.wrap_socket(sock, server_hostname=host) as tls:
                 result.timing["tls"] = round((time.perf_counter() - t2) * 1000)
                 cert = tls.getpeercert()
                 result.tls_version = tls.version()
+        if not verify:  # an unverified certificate's details aren't available (or trustworthy)
+            result.ssl_issuer = "Not verified (verify_ssl: false)"
+            return
         issuer = dict(item[0] for item in cert.get("issuer", ()))
         result.ssl_issuer = issuer.get("organizationName") or issuer.get("commonName")
         result.ssl_expires = datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), timezone.utc)
@@ -541,13 +553,14 @@ class SiteCheck:
         self.url, self.public_only = site["url"], public_only
         self.name = site.get("name") or site_name(self.url)
         self.config_error = site.get("config_error")
+        self.verify = site.get("verify_ssl", True)
         self.session = self.result = self.response = None
 
     def measure(self):
         if self.config_error:
             self.result = Result(self.url, self.name, "DOWN", error=self.config_error)
             return
-        self.session = new_session(self.public_only)
+        self.session = new_session(self.public_only, self.verify)
         self.result, self.response = _fetch(self.session, self.url, self.name)
         for _ in range(config.RETRIES):
             if self.result.status != "DOWN" or self.result.error == BLOCKED_ERROR:
@@ -562,7 +575,7 @@ class SiteCheck:
         try:
             # If the site couldn't be reached at all, probing it again would only time out again
             if response is not None:
-                probe_connection(url, result, self.public_only)
+                probe_connection(url, result, self.public_only, self.verify)
             domain_info(url, result)
             if response is not None:
                 result.final_url = response.url
