@@ -4,4 +4,4 @@ requests==2.34.2
 gunicorn==26.2.0
 tzdata==2026.5
 tldextract==5.4.0
-pyyaml==6.0.3
+pyyaml==6.0.4
